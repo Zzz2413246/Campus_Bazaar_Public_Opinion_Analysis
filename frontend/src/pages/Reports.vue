@@ -80,6 +80,42 @@ async function selectReport(r: any) {
   }
 }
 
+// 生成新报告：调用后端获取今天的报告详情并更新预览
+async function generateReport() {
+  const today = new Date().toISOString().slice(0, 10)
+  try {
+    const res: any = await reportApi.detail(today)
+    const d = unwrap(res)
+    if (d && typeof d === 'object' && typeof d.content === 'string') {
+      previewContent.value = d.content
+    }
+  } catch (err) {
+    console.warn('生成报告失败', err)
+  }
+}
+
+// 复制文本到剪贴板
+async function copyText() {
+  try {
+    await navigator.clipboard.writeText(previewContent.value)
+    alert('报告文本已复制到剪贴板')
+  } catch (err) {
+    console.warn('复制失败', err)
+    alert('复制失败，请手动选择文本复制')
+  }
+}
+
+// 导出文本文件（模拟导出PDF/Word）
+function exportFile(format: string) {
+  const blob = new Blob([previewContent.value], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${selectedReport.value.title || '报告'}.${format === 'pdf' ? 'txt' : 'doc'}`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 onMounted(async () => {
   loading.value = true
   try {
@@ -123,7 +159,7 @@ onMounted(async () => {
         >{{ r.v }}</span>
       </div>
       <div class="flex-1"></div>
-      <button class="btn btn-primary"><AppIcon name="plus" :size="16" /> 生成新报告</button>
+      <button class="btn btn-primary" @click="generateReport"><AppIcon name="plus" :size="16" /> 生成新报告</button>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -156,9 +192,9 @@ onMounted(async () => {
             <p class="section-sub mt-0.5 truncate">{{ selectedReport.title }}</p>
           </div>
           <div class="flex gap-2 flex-wrap">
-            <button class="btn btn-ghost !py-1.5 !px-3 text-xs"><AppIcon name="copy" :size="14" /> 复制文本</button>
-            <button class="btn btn-ghost !py-1.5 !px-3 text-xs"><AppIcon name="download" :size="14" /> 导出 PDF</button>
-            <button class="btn btn-ghost !py-1.5 !px-3 text-xs"><AppIcon name="download" :size="14" /> 导出 Word</button>
+            <button class="btn btn-ghost !py-1.5 !px-3 text-xs" @click="copyText"><AppIcon name="copy" :size="14" /> 复制文本</button>
+            <button class="btn btn-ghost !py-1.5 !px-3 text-xs" @click="exportFile('pdf')"><AppIcon name="download" :size="14" /> 导出 PDF</button>
+            <button class="btn btn-ghost !py-1.5 !px-3 text-xs" @click="exportFile('word')"><AppIcon name="download" :size="14" /> 导出 Word</button>
           </div>
         </div>
         <div class="bg-slate-50/70 p-6 border border-slate-100 overflow-x-auto relative">

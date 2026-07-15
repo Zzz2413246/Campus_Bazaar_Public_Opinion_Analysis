@@ -1,4 +1,4 @@
-package com.nankai.yuqing.service;
+﻿package com.nankai.yuqing.service;
 
 import com.nankai.yuqing.model.EventEntity;
 import com.nankai.yuqing.model.Post;

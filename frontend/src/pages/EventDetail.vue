@@ -33,6 +33,58 @@ const event = ref({
 const adjustedRisk = ref(event.value.risk)
 const dispositionStatus = ref('未处理')
 const remark = ref('')
+const saving = ref(false)
+
+// 保存研判结果到后端
+async function saveDisposition() {
+  if (saving.value) return
+  saving.value = true
+  try {
+    await eventApi.updateStatus(event.value.id, {
+      status: dispositionStatus.value,
+      risk: adjustedRisk.value,
+    })
+    alert('研判结果已保存')
+  } catch (err) {
+    console.error('保存研判失败', err)
+    alert('保存失败，请稍后重试')
+  } finally {
+    saving.value = false
+  }
+}
+
+// 生成简报并复制到剪贴板
+async function generateBrief() {
+  // 组装简报文本
+  const lines: string[] = []
+  lines.push(`事件标题：${event.value.title}`)
+  lines.push(`风险等级：${adjustedRisk.value}（风险评分 ${event.value.riskScore}）`)
+  lines.push(`处置状态：${dispositionStatus.value}`)
+  lines.push(`影响范围：${event.value.stats.affectedRange}`)
+  lines.push(`情绪倾向：${event.value.stats.emotion}`)
+  lines.push('')
+  lines.push('事件摘要：')
+  lines.push(event.value.summary)
+  lines.push('')
+  lines.push('相关帖子：')
+  event.value.relatedPosts.forEach((p, i) => {
+    lines.push(`${i + 1}. [${p.time}] ${p.source} ${p.emotion}`)
+    lines.push(`   ${p.content}`)
+    lines.push(`   评论数：${p.comments}`)
+  })
+  if (remark.value) {
+    lines.push('')
+    lines.push(`研判备注：${remark.value}`)
+  }
+  const text = lines.join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    alert('简报已复制到剪贴板')
+  } catch (err) {
+    console.error('复制简报失败', err)
+    alert('复制失败，请手动复制')
+  }
+}
 
 function unwrap(res: any) {
   if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
@@ -210,8 +262,10 @@ onMounted(async () => {
           </select>
         </div>
         <div class="flex items-end gap-2">
-          <button class="btn btn-primary flex-1">保存研判</button>
-          <button class="btn btn-ghost">生成简报</button>
+          <button class="btn btn-primary flex-1" :disabled="saving" @click="saveDisposition">
+            {{ saving ? '保存中...' : '保存研判' }}
+          </button>
+          <button class="btn btn-ghost" @click="generateBrief">生成简报</button>
         </div>
       </div>
       <div>

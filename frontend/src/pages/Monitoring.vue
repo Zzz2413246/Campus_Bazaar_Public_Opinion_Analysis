@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import { postApi } from '@/utils/api'
@@ -119,13 +119,13 @@ const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.incl
           <option value="">全部类型</option>
           <option>诈骗与财产安全</option><option>治安与人身安全</option>
           <option>消防与用电安全</option><option>校园交通安全</option>
-          <option>宿舍设施问题</option><option>食堂问题</option><option>突发事件</option><option>其他</option>
+          <option>宿舍设施问题</option><option>食堂与餐饮问题</option><option>突发事件</option><option>其他</option>
         </select>
         <select v-model="filterEmotion" class="select">
           <option value="">全部情绪</option><option>正面</option><option>中性</option><option>负面</option>
         </select>
         <select v-model="filterSource" class="select">
-          <option value="">全部来源</option><option>校园集市</option><option>小红书</option><option>微博</option><option>B站</option>
+          <option value="">全部分类</option><option>打听求助</option><option>二手闲置</option><option>恋爱交友</option><option>其他</option>
         </select>
         <span class="text-xs text-slate-400 ml-auto">共 {{ total }} 条</span>
       </div>

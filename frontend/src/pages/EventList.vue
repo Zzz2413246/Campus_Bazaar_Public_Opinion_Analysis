@@ -1,5 +1,5 @@
-<script setup lang="ts">
-import { ref, onMounted } from 'vue'
+﻿﻿<script setup lang="ts">
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { eventApi } from '@/utils/api'
 
@@ -15,6 +15,21 @@ const events = ref([
   { id: '5', risk: '低', title: '图书馆空调温度过低', category: '设施', posts: 5, growth: '稳定', time: '7月13日', status: '已确认' },
   { id: '6', risk: '低', title: '操场夜间照明不足', category: '设施', posts: 8, growth: '稳定', time: '7月10日', status: '已忽略' },
 ])
+
+// 筛选条件变量
+const filterRisk = ref('')
+const filterCategory = ref('')
+const filterStatus = ref('')
+
+// 根据筛选条件过滤事件列表
+const filteredEvents = computed(() => {
+  return events.value.filter(e => {
+    if (filterRisk.value && e.risk !== filterRisk.value) return false
+    if (filterCategory.value && e.category !== filterCategory.value) return false
+    if (filterStatus.value && e.status !== filterStatus.value) return false
+    return true
+  })
+})
 
 const statusBadge = (s: string) =>
   s === '待研判' ? 'badge-warn' : s === '处理中' ? 'badge-info' : s === '已确认' ? 'badge-success' : 'badge-neutral'
@@ -61,17 +76,17 @@ onMounted(async () => {
     <!-- 筛选栏 -->
     <div class="card card-pad flex flex-wrap items-center gap-3">
       <span class="text-sm text-slate-500">筛选</span>
-      <select class="select">
-        <option>全部风险等级</option><option>高风险</option><option>中风险</option><option>低风险</option>
+      <select class="select" v-model="filterRisk">
+        <option value="">全部风险等级</option><option value="高">高风险</option><option value="中">中风险</option><option value="低">低风险</option>
       </select>
-      <select class="select">
-        <option>全部事件类型</option><option>诈骗</option><option>治安</option><option>消防</option><option>交通</option><option>设施</option>
+      <select class="select" v-model="filterCategory">
+        <option value="">全部事件类型</option><option value="诈骗与财产安全">诈骗与财产安全</option><option value="治安与人身安全">治安与人身安全</option><option value="消防与用电安全">消防与用电安全</option><option value="校园交通安全">校园交通安全</option><option value="宿舍设施问题">宿舍设施问题</option><option value="食堂与餐饮问题">食堂与餐饮问题</option>
       </select>
-      <select class="select">
-        <option>全部状态</option><option>待研判</option><option>处理中</option><option>已确认</option><option>已忽略</option>
+      <select class="select" v-model="filterStatus">
+        <option value="">全部状态</option><option value="待研判">待研判</option><option value="处理中">处理中</option><option value="已确认">已确认</option><option value="已忽略">已忽略</option>
       </select>
       <div class="flex-1"></div>
-      <span class="text-sm text-slate-500">共 <span class="font-semibold text-slate-700">{{ events.length }}</span> 个事件</span>
+      <span class="text-sm text-slate-500">共 <span class="font-semibold text-slate-700">{{ filteredEvents.length }}</span> 个事件</span>
     </div>
 
     <!-- 事件表格 -->
@@ -91,7 +106,7 @@ onMounted(async () => {
         </thead>
         <tbody>
           <tr
-            v-for="e in events"
+            v-for="e in filteredEvents"
             :key="e.id"
             @click="goDetail(e.id)"
           >
@@ -117,12 +132,9 @@ onMounted(async () => {
       </table>
     </div>
 
-    <!-- 分页 -->
-    <div class="flex items-center justify-center gap-1.5">
-      <span class="page-btn">上一页</span>
-      <span class="page-btn page-btn-active">1</span>
-      <span class="page-btn">2</span>
-      <span class="page-btn">下一页</span>
+    <!-- 分页：事件数量不多，仅显示统计文字 -->
+    <div class="flex items-center justify-center text-sm text-slate-400">
+      共 {{ filteredEvents.length }} 个事件
     </div>
   </div>
 </template>
