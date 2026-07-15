@@ -35,8 +35,8 @@ function navigate(path: string) {
           <AppIcon name="shield" :size="20" />
         </div>
         <div v-if="!appStore.sidebarCollapsed" class="ml-3 overflow-hidden">
-          <div class="text-sm font-semibold whitespace-nowrap tracking-wide leading-tight">校园安全舆情</div>
-          <div class="text-2xs text-slate-400 whitespace-nowrap leading-tight mt-0.5">智能研判平台</div>
+          <div class="text-base font-semibold whitespace-nowrap tracking-wide leading-tight">校园安全舆情</div>
+          <div class="text-xs text-slate-400 whitespace-nowrap leading-tight mt-0.5">智能研判平台</div>
         </div>
       </div>
 
@@ -47,7 +47,7 @@ function navigate(path: string) {
           :key="item.path"
           @click="navigate(`/${item.path}`)"
           :class="[
-            'flex items-center px-3 py-2.5 cursor-pointer transition-all duration-200 mb-1 group relative',
+            'flex items-center px-3.5 py-3 cursor-pointer transition-all duration-200 mb-1 group relative',
             route.path === `/${item.path}`
               ? 'bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-lg shadow-brand-600/30'
               : 'text-slate-400 hover:bg-white/5 hover:text-white',
@@ -56,14 +56,14 @@ function navigate(path: string) {
           <!-- 激活态左侧指示条 -->
           <span
             v-if="route.path === `/${item.path}`"
-            class="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-accent-400 rounded-r-full"
+            class="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent-400 rounded-r-full"
           ></span>
           <span class="flex-shrink-0 w-5 flex items-center justify-center">
-            <AppIcon :name="String(item.meta?.icon)" :size="18" />
+            <AppIcon :name="String(item.meta?.icon)" :size="20" />
           </span>
           <span
             v-if="!appStore.sidebarCollapsed"
-            class="ml-3 text-sm whitespace-nowrap"
+            class="ml-3 text-[15px] whitespace-nowrap"
           >
             {{ item.meta?.title }}
           </span>
@@ -111,7 +111,7 @@ function navigate(path: string) {
         </div>
       </header>
 
-      <main class="flex-1 overflow-auto py-5">
+      <main class="flex-1 overflow-auto py-6 px-12">
         <router-view />
       </main>
     </div>

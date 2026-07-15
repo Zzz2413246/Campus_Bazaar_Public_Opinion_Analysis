@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { eventApi } from '@/utils/api'
 
 const router = useRouter()
+
+const loading = ref(false)
 
 const events = ref([
   { id: '1', risk: '高', title: '西门快递诈骗集中事件', category: '诈骗', posts: 45, growth: '+15/天', time: '7月12日', status: '处理中' },
@@ -17,10 +20,44 @@ const statusBadge = (s: string) =>
   s === '待研判' ? 'badge-warn' : s === '处理中' ? 'badge-info' : s === '已确认' ? 'badge-success' : 'badge-neutral'
 
 function goDetail(id: string) { router.push(`/events/${id}`) }
+
+function unwrap(res: any) {
+  if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
+  return res
+}
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    const res: any = await eventApi.list()
+    const d = unwrap(res)
+    if (Array.isArray(d) && d.length) {
+      events.value = d.map((e: any) => ({
+        id: String(e.id ?? e.eventId ?? ''),
+        risk: e.risk ?? e.riskLevel ?? '低',
+        title: e.title ?? e.name ?? e.summary ?? '',
+        category: e.category ?? e.type ?? '',
+        posts: e.posts ?? e.postCount ?? e.count ?? 0,
+        growth: e.growth ?? e.growthRate ?? '稳定',
+        time: e.time ?? e.date ?? e.createdAt ?? '',
+        status: e.status ?? '待研判',
+      }))
+    }
+  } catch (err) {
+    console.warn('事件列表加载失败，使用默认数据', err)
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <template>
   <div class="page">
+    <!-- 加载状态 -->
+    <div v-if="loading" class="flex items-center justify-center gap-2 py-3 text-sm text-slate-400">
+      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
+      数据加载中...
+    </div>
     <!-- 筛选栏 -->
     <div class="card card-pad flex flex-wrap items-center gap-3">
       <span class="text-sm text-slate-500">筛选</span>

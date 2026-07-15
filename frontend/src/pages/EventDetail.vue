@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import BaseChart from '../components/BaseChart.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { miniTrendOption, radarOption } from '../utils/chartTheme'
+import { eventApi } from '@/utils/api'
 
 const router = useRouter()
+const route = useRoute()
+
+const loading = ref(false)
 
 const event = ref({
   id: '1', title: '西门快递诈骗集中事件', risk: '高', riskScore: 87,
@@ -29,10 +33,68 @@ const event = ref({
 const adjustedRisk = ref(event.value.risk)
 const dispositionStatus = ref('未处理')
 const remark = ref('')
+
+function unwrap(res: any) {
+  if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
+  return res
+}
+
+onMounted(async () => {
+  const id = String(route.params.id)
+  if (!id) return
+  loading.value = true
+  try {
+    const res: any = await eventApi.detail(id)
+    const d = unwrap(res) || {}
+    const cur = event.value
+    event.value = {
+      id: String(d.id ?? cur.id),
+      title: d.title ?? d.name ?? cur.title,
+      risk: d.risk ?? d.riskLevel ?? cur.risk,
+      riskScore: d.riskScore ?? d.score ?? cur.riskScore,
+      summary: d.summary ?? d.description ?? cur.summary,
+      stats: {
+        postCount: d.stats?.postCount ?? d.postCount ?? cur.stats.postCount,
+        affectedRange: d.stats?.affectedRange ?? d.affectedRange ?? cur.stats.affectedRange,
+        urgency: d.stats?.urgency ?? d.urgency ?? cur.stats.urgency,
+        emotion: d.stats?.emotion ?? d.emotion ?? cur.stats.emotion,
+      },
+      riskReasons: Array.isArray(d.riskReasons) && d.riskReasons.length
+        ? d.riskReasons.map((r: any) => ({
+            reason: r.reason ?? r.name ?? '',
+            score: r.score ?? r.weight ?? '',
+            detail: r.detail ?? r.desc ?? '',
+          }))
+        : cur.riskReasons,
+      trend: Array.isArray(d.trend) && d.trend.length
+        ? d.trend.map((t: any) => ({ date: t.date ?? t.time ?? '', count: t.count ?? t.value ?? 0 }))
+        : cur.trend,
+      relatedPosts: Array.isArray(d.relatedPosts) && d.relatedPosts.length
+        ? d.relatedPosts.map((p: any) => ({
+            time: p.time ?? p.createdAt ?? '',
+            source: p.source ?? p.platform ?? '',
+            content: p.content ?? p.text ?? '',
+            emotion: p.emotion ?? p.sentiment ?? '',
+            comments: p.comments ?? p.commentCount ?? 0,
+          }))
+        : cur.relatedPosts,
+    }
+    adjustedRisk.value = event.value.risk
+  } catch (err) {
+    console.warn('事件详情加载失败，使用默认数据', err)
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <template>
   <div class="page">
+    <!-- 加载状态 -->
+    <div v-if="loading" class="flex items-center justify-center gap-2 py-3 text-sm text-slate-400">
+      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
+      数据加载中...
+    </div>
     <!-- 返回 + 标题 -->
     <div class="flex items-center gap-3 flex-wrap">
       <button @click="router.push('/events')" class="btn btn-ghost !py-1.5 !px-3 text-xs"><AppIcon name="arrow-left" :size="14" /> 返回列表</button>

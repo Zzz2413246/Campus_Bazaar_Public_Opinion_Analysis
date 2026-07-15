@@ -111,10 +111,10 @@ export function donutOption(): EChartsOption {
   }
 }
 
-// 帖子总量趋势 · 面积图（近14天，自动跨月）
+// 帖子总量趋势 · 面积图（近7天，与后端 areaData 对齐）
 export function areaOption(): EChartsOption {
-  const days = lastNDays(14)
-  const data = [820, 932, 901, 1034, 1090, 1230, 1160, 980, 1120, 1050, 1340, 1180, 1420, 1245]
+  const days = lastNDays(7)
+  const data: number[] = []
   return {
     tooltip,
     grid,
@@ -165,25 +165,21 @@ export function emotionOption(): EChartsOption {
     },
     series: [
       { name: '正面', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5,
-        data: [38, 42, 40, 35, 44, 48, 50], lineStyle: { width: 2.5, color: palette[4] }, itemStyle: { color: palette[4] } },
+        data: [] as number[], lineStyle: { width: 2.5, color: palette[4] }, itemStyle: { color: palette[4] } },
       { name: '中性', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5,
-        data: [40, 38, 42, 40, 38, 36, 35], lineStyle: { width: 2.5, color: palette[1] }, itemStyle: { color: palette[1] } },
+        data: [] as number[], lineStyle: { width: 2.5, color: palette[1] }, itemStyle: { color: palette[1] } },
       { name: '负面', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5,
-        data: [22, 20, 18, 25, 18, 16, 15], lineStyle: { width: 2.5, color: palette[3] }, itemStyle: { color: palette[3] } },
+        data: [] as number[], lineStyle: { width: 2.5, color: palette[3] }, itemStyle: { color: palette[3] } },
     ],
   }
 }
 
-// 各类议题热度 · 堆叠面积图
+// 各类议题热度 · 堆叠面积图（默认空，由后端 stackData 填充）
 export function stackAreaOption(): EChartsOption {
   const days = lastNDays(7)
   const cats = ['诈骗', '治安', '消防', '交通', '设施']
   const data: Record<string, number[]> = {
-    '诈骗': [12, 18, 15, 22, 19, 25, 20],
-    '治安': [8, 10, 9, 12, 10, 11, 9],
-    '消防': [5, 6, 8, 14, 20, 28, 32],
-    '交通': [7, 9, 8, 10, 9, 11, 8],
-    '设施': [14, 16, 15, 18, 16, 20, 22],
+    '诈骗': [], '治安': [], '消防': [], '交通': [], '设施': [],
   }
   const colors = [palette[0], palette[1], palette[2], palette[3], palette[4]]
   return {
@@ -235,13 +231,13 @@ export function barOption(): EChartsOption {
     series: [{
       type: 'bar', barWidth: '46%',
       data: [
-        { value: 5230, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+        { value: 0, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [{ offset: 0, color: palette[0] }, { offset: 1, color: 'rgba(99,102,241,0.5)' }] } } },
-        { value: 3120, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+        { value: 0, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [{ offset: 0, color: palette[1] }, { offset: 1, color: 'rgba(6,182,212,0.5)' }] } } },
-        { value: 2840, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+        { value: 0, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [{ offset: 0, color: palette[2] }, { offset: 1, color: 'rgba(245,158,11,0.5)' }] } } },
-        { value: 1655, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+        { value: 0, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [{ offset: 0, color: palette[4] }, { offset: 1, color: 'rgba(16,185,129,0.5)' }] } } },
       ],
       itemStyle: { borderRadius: [6, 6, 0, 0] },

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
+import { assistantApi } from '@/utils/api'
 
 const inputText = ref('')
+const thinking = ref(false)
 
 interface Message { role: 'user' | 'assistant'; content: string; time: string }
 
@@ -20,19 +22,39 @@ const suggestQuestions = [
   '生成一份本周校园安全舆情简报',
 ]
 
-function sendMessage(text?: string) {
+function unwrap(res: any) {
+  if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
+  return res
+}
+
+function nowTime() {
+  return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
+
+async function sendMessage(text?: string) {
   const msg = text || inputText.value
-  if (!msg.trim()) return
-  messages.value.push({ role: 'user', content: msg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) })
+  if (!msg.trim() || thinking.value) return
+  messages.value.push({ role: 'user', content: msg, time: nowTime() })
   inputText.value = ''
-  setTimeout(() => {
+  thinking.value = true
+  nextTick(() => { document.getElementById('chat-end')?.scrollIntoView({ behavior: 'smooth' }) })
+  try {
+    const res: any = await assistantApi.query(msg)
+    const d = unwrap(res)
+    const answer = typeof d === 'string' ? d
+      : (d?.answer ?? d?.content ?? d?.reply ?? '抱歉，暂时无法获取回答，请稍后再试。')
+    messages.value.push({ role: 'assistant', content: answer, time: nowTime() })
+  } catch (err) {
+    console.warn('助手请求失败', err)
     messages.value.push({
       role: 'assistant',
-      content: `收到你的问题：「${msg}」\n\n根据平台数据，以下是分析结果：\n\n高风险事件（1项）：西门快递诈骗集中事件 — 45条讨论\n中风险事件（3项）：二食堂卫生投诉、电动车乱停、21栋充电安全\n\n建议关注：消防与用电议题本周增长230%，值得重点关注。\n\n（实际部署后将接入学生二提供的 LLM + 结构化数据接口）`,
-      time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+      content: `收到你的问题：「${msg}」\n\n抱歉，当前无法连接分析服务，请稍后再试。`,
+      time: nowTime(),
     })
+  } finally {
+    thinking.value = false
     nextTick(() => { document.getElementById('chat-end')?.scrollIntoView({ behavior: 'smooth' }) })
-  }, 800)
+  }
 }
 </script>
 
@@ -62,6 +84,17 @@ function sendMessage(text?: string) {
         </div>
         <div v-if="msg.role === 'user'" class="w-9 h-9 rounded-xl bg-slate-200 flex items-center justify-center flex-shrink-0 text-slate-500"><AppIcon name="smile" :size="18" /></div>
       </div>
+      <div v-if="thinking" class="flex gap-3 justify-start">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center flex-shrink-0 text-white shadow-sm"><AppIcon name="bot" :size="18" /></div>
+        <div class="max-w-[75%] px-4 py-3 bg-white border border-slate-200/70 shadow-sm text-sm text-slate-400">
+          <span class="inline-flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:0ms"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:150ms"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:300ms"></span>
+            正在思考...
+          </span>
+        </div>
+      </div>
       <div id="chat-end"></div>
     </div>
 
@@ -84,7 +117,7 @@ function sendMessage(text?: string) {
         placeholder="输入问题，查询平台中的校园安全数据..."
         class="flex-1 px-3 py-2 text-sm outline-none bg-transparent"
       >
-      <button @click="sendMessage()" class="btn btn-primary"><AppIcon name="send" :size="15" /> 发送</button>
+      <button @click="sendMessage()" :disabled="thinking" class="btn btn-primary"><AppIcon name="send" :size="15" /> 发送</button>
     </div>
   </div>
 </template>

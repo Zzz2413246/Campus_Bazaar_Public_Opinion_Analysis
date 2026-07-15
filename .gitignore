@@ -18,6 +18,12 @@ dist-ssr
 *.sln
 *.sw?
 
+# Java / Maven
+target/
+*.jar
+*.class
+*.war
+
 # Logs
 logs
 *.log

@@ -87,14 +87,17 @@ body {
   /* 页面容器 */
   .page {
     @apply space-y-6;
+    padding-left: 32px;
+    padding-right: 32px;
   }
 
   /* 卡片 · 直角矩形 */
   .card {
     @apply bg-white border border-slate-200/70 shadow-sm shadow-slate-200/50;
+    padding: 32px 52px !important;
   }
   .card-pad {
-    @apply p-6;
+    padding: 32px 52px !important;
   }
   .card-hover {
     @apply transition-all duration-200 hover:shadow-lg hover:shadow-slate-200/70 hover:border-slate-300/80 hover:-translate-y-0.5;
@@ -110,7 +113,8 @@ body {
 
   /* 统计卡 · 直角矩形，不裁切内容 */
   .stat-card {
-    @apply relative bg-white border border-slate-200/70 p-6 shadow-sm shadow-slate-200/50;
+    @apply relative bg-white border border-slate-200/70 shadow-sm shadow-slate-200/50;
+    padding: 32px 52px !important;
   }
   .stat-card::after {
     content: '';
@@ -184,10 +188,14 @@ body {
     @apply w-full;
   }
   .table-base thead th {
-    @apply text-left text-xs font-medium text-slate-500 border-b border-slate-100 px-5 py-3 whitespace-nowrap;
+    @apply text-left text-xs font-medium text-slate-500 border-b border-slate-100 py-3 whitespace-nowrap;
+    padding-left: 48px;
+    padding-right: 24px;
   }
   .table-base tbody td {
-    @apply text-sm text-slate-700 px-5 py-3.5 border-b border-slate-50 align-middle;
+    @apply text-sm text-slate-700 py-3.5 border-b border-slate-50 align-middle;
+    padding-left: 48px;
+    padding-right: 24px;
   }
   .table-base tbody tr {
     @apply transition-colors;

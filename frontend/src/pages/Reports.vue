@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
+import { reportApi } from '@/utils/api'
 
 const reportType = ref<'daily' | 'weekly' | 'event'>('daily')
 
@@ -9,6 +10,9 @@ const types = [
   { k: 'weekly', v: '周报' },
   { k: 'event', v: '事件简报' },
 ]
+
+const loading = ref(false)
+const previewLoading = ref(false)
 
 const reports = ref([
   { date: '2026-07-14', title: '7月14日 校园安全日报', newPosts: 1245, events: 3, highRisk: 0, status: '已生成' },
@@ -48,10 +52,67 @@ const previewContent = ref(`━━━━━━━━━━━━━━━━━�
 · 关注宿舍空调维修投诉集中情况
 · 留意夏季消防安全相关讨论
 `)
+
+const selectedReport = ref(reports.value[0])
+
+function unwrap(res: any) {
+  if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
+  return res
+}
+
+async function selectReport(r: any) {
+  selectedReport.value = r
+  previewLoading.value = true
+  try {
+    const res: any = await reportApi.detail(r.date)
+    const d = unwrap(res)
+    if (typeof d === 'string' && d.trim()) {
+      previewContent.value = d
+    } else if (d && typeof d === 'object') {
+      if (typeof d.content === 'string') previewContent.value = d.content
+      else if (typeof d.report === 'string') previewContent.value = d.report
+      else if (typeof d.text === 'string') previewContent.value = d.text
+    }
+  } catch (err) {
+    console.warn('报告详情加载失败，使用默认内容', err)
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    const res: any = await reportApi.list()
+    const d = unwrap(res)
+    if (Array.isArray(d) && d.length) {
+      reports.value = d.map((r: any) => ({
+        date: r.date ?? r.id ?? '',
+        title: r.title ?? r.name ?? '',
+        newPosts: r.newPosts ?? r.posts ?? 0,
+        events: r.events ?? r.eventCount ?? 0,
+        highRisk: r.highRisk ?? r.highRiskCount ?? 0,
+        status: r.status ?? '已生成',
+      }))
+      selectedReport.value = reports.value[0]
+      // 默认加载首份报告详情
+      selectReport(reports.value[0])
+    }
+  } catch (err) {
+    console.warn('报告列表加载失败，使用默认数据', err)
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <template>
   <div class="page">
+    <!-- 加载状态 -->
+    <div v-if="loading" class="flex items-center justify-center gap-2 py-3 text-sm text-slate-400">
+      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
+      数据加载中...
+    </div>
     <div class="flex items-center gap-3 flex-wrap">
       <div class="seg">
         <span
@@ -69,10 +130,11 @@ const previewContent = ref(`━━━━━━━━━━━━━━━━━�
       <!-- 报告列表 -->
       <div class="space-y-3">
         <div
-          v-for="(r, i) in reports"
+          v-for="r in reports"
           :key="r.date"
           class="card card-pad card-hover cursor-pointer"
-          :class="i === 0 ? 'ring-2 ring-brand-200' : ''"
+          :class="selectedReport.date === r.date ? 'ring-2 ring-brand-200' : ''"
+          @click="selectReport(r)"
         >
           <div class="flex items-center justify-between mb-2 gap-2">
             <span class="text-sm font-medium text-slate-800 truncate">{{ r.title }}</span>
@@ -91,7 +153,7 @@ const previewContent = ref(`━━━━━━━━━━━━━━━━━�
         <div class="flex items-start justify-between mb-4 gap-3 flex-wrap">
           <div class="min-w-0">
             <h3 class="section-title">报告预览</h3>
-            <p class="section-sub mt-0.5 truncate">{{ reports[0].title }}</p>
+            <p class="section-sub mt-0.5 truncate">{{ selectedReport.title }}</p>
           </div>
           <div class="flex gap-2 flex-wrap">
             <button class="btn btn-ghost !py-1.5 !px-3 text-xs"><AppIcon name="copy" :size="14" /> 复制文本</button>
@@ -99,7 +161,10 @@ const previewContent = ref(`━━━━━━━━━━━━━━━━━�
             <button class="btn btn-ghost !py-1.5 !px-3 text-xs"><AppIcon name="download" :size="14" /> 导出 Word</button>
           </div>
         </div>
-        <div class="bg-slate-50/70 p-6 border border-slate-100 overflow-x-auto">
+        <div class="bg-slate-50/70 p-6 border border-slate-100 overflow-x-auto relative">
+          <div v-if="previewLoading" class="absolute inset-0 flex items-center justify-center bg-white/60 text-sm text-slate-400">
+            <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin mr-2"></span> 报告加载中...
+          </div>
           <pre class="text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">{{ previewContent }}</pre>
         </div>
       </div>

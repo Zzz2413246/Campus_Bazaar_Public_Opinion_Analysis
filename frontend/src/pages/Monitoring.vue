@@ -1,16 +1,100 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
+import { postApi } from '@/utils/api'
 
+const loading = ref(false)
 const searchKeyword = ref('')
+const filterCategory = ref('')
+const filterEmotion = ref('')
+const filterSource = ref('')
 
-const posts = ref([
-  { id: 1, category: '诈骗', emotion: '负面', source: '校园集市', comments: 23, likes: 5, time: '2小时前', content: '昨天在西门遇到骗子假装借钱，大家小心点别被骗了...', location: '西门', problem: '诈骗', demand: '提醒同学注意' },
-  { id: 2, category: '宿舍', emotion: '负面', source: '小红书', comments: 56, likes: 12, time: '3小时前', content: '17栋空调坏了快一周了还没修，这么热的天根本没法住...', location: '17栋宿舍', problem: '设施维修', demand: '空调维修' },
-  { id: 3, category: '食堂', emotion: '中性', source: '校园集市', comments: 18, likes: 3, time: '4小时前', content: '二食堂今天菜又涨价了，学生党吃不起饭了...', location: '二食堂', problem: '价格问题', demand: '关注价格' },
-  { id: 4, category: '消防', emotion: '负面', source: '微博', comments: 89, likes: 34, time: '5小时前', content: '21栋楼下电瓶车充电冒烟了！还好发现及时，不然就着火了...', location: '21栋宿舍', problem: '充电安全', demand: '加强管理' },
-  { id: 5, category: '交通', emotion: '负面', source: 'B站', comments: 42, likes: 15, time: '6小时前', content: '西门上下课时间段堵得水泄不通，电瓶车乱窜太危险了...', location: '西门', problem: '交通拥堵', demand: '疏导交通' },
-])
+const posts = ref<any[]>([])
+const total = ref(0)
+const page = ref(1)
+const size = ref(20)
+
+function unwrap(res: any) {
+  if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
+  return res
+}
+
+async function loadPosts() {
+  loading.value = true
+  try {
+    const res: any = await postApi.list({
+      keyword: searchKeyword.value || undefined,
+      category: filterCategory.value || undefined,
+      emotion: filterEmotion.value || undefined,
+      source: filterSource.value || undefined,
+      page: page.value,
+      size: size.value,
+    })
+    const d = unwrap(res)
+    // 后端返回 { total, page, size, data: [...] }
+    if (d && typeof d === 'object' && Array.isArray(d.data)) {
+      posts.value = d.data.map((p: any) => ({
+        id: p.id,
+        category: p.safetyCategory ?? p.category ?? '其他',
+        emotion: p.emotion ?? '中性',
+        source: p.source ?? p.categoryName ?? '',
+        comments: p.commentCount ?? p.comments ?? 0,
+        likes: p.likeCount ?? p.likes ?? 0,
+        time: p.timeDesc ?? p.time ?? '',
+        content: p.content ?? '',
+        location: p.location ?? '',
+        problem: p.problem ?? '',
+        demand: p.demand ?? '',
+      }))
+      total.value = d.total ?? posts.value.length
+    } else if (Array.isArray(d)) {
+      posts.value = d.map((p: any) => ({
+        id: p.id,
+        category: p.safetyCategory ?? p.category ?? '其他',
+        emotion: p.emotion ?? '中性',
+        source: p.source ?? p.categoryName ?? '',
+        comments: p.commentCount ?? p.comments ?? 0,
+        likes: p.likeCount ?? p.likes ?? 0,
+        time: p.timeDesc ?? p.time ?? '',
+        content: p.content ?? '',
+        location: p.location ?? '',
+        problem: p.problem ?? '',
+        demand: p.demand ?? '',
+      }))
+      total.value = d.length
+    }
+  } catch (err) {
+    console.warn('帖子数据加载失败', err)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 筛选条件变化时重置到第1页并重新加载
+watch([searchKeyword, filterCategory, filterEmotion, filterSource], () => {
+  page.value = 1
+  loadPosts()
+})
+
+function goPage(p: number) {
+  if (p < 1 || p > totalPages.value) return
+  page.value = p
+  loadPosts()
+}
+
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size.value)))
+
+// 生成页码数组（最多显示7个）
+const pageNumbers = computed(() => {
+  const tp = totalPages.value
+  const cur = page.value
+  if (tp <= 7) return Array.from({ length: tp }, (_, i) => i + 1)
+  if (cur <= 4) return [1, 2, 3, 4, 5, '...', tp]
+  if (cur >= tp - 3) return [1, '...', tp - 4, tp - 3, tp - 2, tp - 1, tp]
+  return [1, '...', cur - 1, cur, cur + 1, '...', tp]
+})
+
+onMounted(loadPosts)
 
 const emotionIcon = (e: string) => e.includes('负面') ? 'anger' : e.includes('中性') ? 'meh' : 'smile'
 const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.includes('中性') ? 'badge-neutral' : 'badge-success'
@@ -28,23 +112,33 @@ const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.incl
             type="text"
             placeholder="搜索关键词、地点、事件..."
             class="input w-full !pl-9"
+            @keyup.enter="loadPosts"
           />
         </div>
-        <select class="select">
-          <option>全部类型</option><option>诈骗与财产安全</option><option>治安与人身安全</option>
-          <option>消防与用电安全</option><option>校园交通安全</option><option>宿舍设施</option><option>食堂问题</option>
+        <select v-model="filterCategory" class="select">
+          <option value="">全部类型</option>
+          <option>诈骗与财产安全</option><option>治安与人身安全</option>
+          <option>消防与用电安全</option><option>校园交通安全</option>
+          <option>宿舍设施问题</option><option>食堂问题</option><option>突发事件</option><option>其他</option>
         </select>
-        <select class="select">
-          <option>全部情绪</option><option>正面</option><option>中性</option><option>负面</option>
+        <select v-model="filterEmotion" class="select">
+          <option value="">全部情绪</option><option>正面</option><option>中性</option><option>负面</option>
         </select>
-        <select class="select">
-          <option>全部来源</option><option>校园集市</option><option>小红书</option><option>微博</option><option>B站</option>
+        <select v-model="filterSource" class="select">
+          <option value="">全部来源</option><option>校园集市</option><option>小红书</option><option>微博</option><option>B站</option>
         </select>
+        <span class="text-xs text-slate-400 ml-auto">共 {{ total }} 条</span>
       </div>
     </div>
 
+    <!-- 加载状态 -->
+    <div v-if="loading" class="flex items-center justify-center gap-2 py-8 text-sm text-slate-400">
+      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
+      数据加载中...
+    </div>
+
     <!-- 帖子列表 -->
-    <div class="space-y-3">
+    <div v-else-if="posts.length" class="space-y-3">
       <div
         v-for="post in posts"
         :key="post.id"
@@ -64,22 +158,26 @@ const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.incl
         </div>
         <p class="text-sm text-slate-700 leading-relaxed">{{ post.content }}</p>
         <div class="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100 flex-wrap">
-          <span class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="map-pin" :size="13" /> {{ post.location }}</span>
-          <span class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="tag" :size="13" /> {{ post.problem }}</span>
-          <span class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="megaphone" :size="13" /> {{ post.demand }}</span>
+          <span v-if="post.location" class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="map-pin" :size="13" /> {{ post.location }}</span>
+          <span v-if="post.problem" class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="tag" :size="13" /> {{ post.problem }}</span>
+          <span v-if="post.demand" class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="megaphone" :size="13" /> {{ post.demand }}</span>
         </div>
       </div>
     </div>
 
+    <!-- 空状态 -->
+    <div v-else class="card card-pad text-center py-12 text-sm text-slate-400">
+      暂无符合条件的帖子
+    </div>
+
     <!-- 分页 -->
-    <div class="flex items-center justify-center gap-1.5">
-      <span class="page-btn">上一页</span>
-      <span class="page-btn page-btn-active">1</span>
-      <span class="page-btn">2</span>
-      <span class="page-btn">3</span>
-      <span class="page-btn text-slate-400 border-transparent bg-transparent">...</span>
-      <span class="page-btn">10</span>
-      <span class="page-btn">下一页</span>
+    <div v-if="totalPages > 1" class="flex items-center justify-center gap-1.5">
+      <span class="page-btn" :class="{ 'opacity-40 pointer-events-none': page <= 1 }" @click="goPage(page - 1)">上一页</span>
+      <template v-for="(p, i) in pageNumbers" :key="i">
+        <span v-if="p === '...'" class="page-btn text-slate-400 border-transparent bg-transparent">...</span>
+        <span v-else class="page-btn" :class="{ 'page-btn-active': p === page }" @click="goPage(p as number)">{{ p }}</span>
+      </template>
+      <span class="page-btn" :class="{ 'opacity-40 pointer-events-none': page >= totalPages }" @click="goPage(page + 1)">下一页</span>
     </div>
   </div>
 </template>

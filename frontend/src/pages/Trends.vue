@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import BaseChart from '../components/BaseChart.vue'
-import { areaOption, emotionOption, stackAreaOption, barOption } from '../utils/chartTheme'
+import { areaOption, emotionOption, stackAreaOption, barOption, palette } from '../utils/chartTheme'
+import { trendsApi } from '@/utils/api'
 
 const timeRange = ref('7d')
 
@@ -11,24 +12,137 @@ const ranges = [
   { k: 'custom', v: '自定义' },
 ]
 
-const charts = [
-  { title: '帖子总量趋势', sub: '面积图 · 日期 / 帖子数量', opt: areaOption() },
-  { title: '情绪变化趋势', sub: '折线图 · 正面 / 中性 / 负面', opt: emotionOption() },
-  { title: '各类议题热度变化', sub: '堆叠面积图 · 诈骗 / 治安 / 消防 / 交通 / 设施', opt: stackAreaOption() },
-  { title: '各来源渠道对比', sub: '柱状图 · 校园集市 / 小红书 / 微博 / B站', opt: barOption() },
-]
+const loading = ref(false)
 
-const topItems = [
-  { name: '消防与用电安全', pct: 230, w: 95, c: 'from-rose-500 to-rose-400' },
-  { name: '宿舍设施问题', pct: 85, w: 60, c: 'from-amber-500 to-amber-400' },
-  { name: '诈骗与财产安全', pct: 42, w: 42, c: 'from-amber-500 to-amber-400' },
-  { name: '校园交通安全', pct: 28, w: 30, c: 'from-brand-500 to-brand-400' },
-  { name: '食堂问题', pct: 15, w: 20, c: 'from-brand-500 to-brand-400' },
-]
+const areaData = ref<any>(null)
+const emotionData = ref<any>(null)
+const stackData = ref<any>(null)
+const sourceData = ref<any>(null)
+
+// 占位默认值（后端数据到达后会被覆盖）；pct 为占比 0~100
+const topItems = ref<any[]>([])
+
+// 帖子总量趋势：API 数据覆盖默认序列
+const areaOpt = computed(() => {
+  const base = areaOption() as any
+  const ad = areaData.value
+  if (ad) {
+    if (Array.isArray(ad.data)) (base.series as any[])[0].data = ad.data
+    if (Array.isArray(ad.labels)) base.xAxis.data = ad.labels
+  }
+  return base
+})
+
+// 情绪变化趋势：API 数据覆盖正/中/负
+const emotionOpt = computed(() => {
+  const base = emotionOption() as any
+  const ed = emotionData.value
+  if (ed) {
+    const s = base.series as any[]
+    if (Array.isArray(ed.positive)) s[0].data = ed.positive
+    if (Array.isArray(ed.neutral)) s[1].data = ed.neutral
+    if (Array.isArray(ed.negative)) s[2].data = ed.negative
+    if (Array.isArray(ed.labels)) base.xAxis.data = ed.labels
+  }
+  return base
+})
+
+// 各类议题热度变化：API 数据覆盖堆叠序列
+const stackOpt = computed(() => {
+  const base = stackAreaOption() as any
+  const sd = stackData.value
+  if (sd) {
+    if (Array.isArray(sd.labels)) base.xAxis.data = sd.labels
+    // 后端可能提供 { series: [{ name, data }] } 或 { 诈骗: [...] }
+    const incoming: { name: string; data: number[] }[] = Array.isArray(sd.series)
+      ? sd.series.map((x: any) => ({ name: x.name ?? x.category ?? '', data: Array.isArray(x.data) ? x.data : [] }))
+      : Object.keys(sd).filter((k) => k !== 'labels' && Array.isArray(sd[k])).map((k) => ({ name: k, data: sd[k] }))
+    if (incoming.length) {
+      base.series = incoming.map((item, i) => ({
+        name: item.name, type: 'line', stack: 'total', smooth: true, symbol: 'none',
+        data: item.data,
+        lineStyle: { width: 1.5, color: palette[i % palette.length] },
+        itemStyle: { color: palette[i % palette.length] },
+        areaStyle: { color: palette[i % palette.length], opacity: 0.18 },
+      }))
+      base.legend.data = incoming.map((x) => x.name)
+    }
+  }
+  return base
+})
+
+// 各来源渠道对比：API 数据覆盖柱状数值
+const barOpt = computed(() => {
+  const base = barOption() as any
+  const sd = sourceData.value
+  if (sd) {
+    const series = (base.series as any[])[0]
+    if (Array.isArray(sd.values) && sd.values.length) {
+      series.data = sd.values.map((v: any, i: number) => {
+        const num = typeof v === 'number' ? v : (v?.value ?? v?.count ?? 0)
+        return { value: num, itemStyle: series.data[i % series.data.length]?.itemStyle }
+      })
+    } else if (Array.isArray(sd) && sd.length) {
+      series.data = sd.map((v: any, i: number) => ({
+        value: typeof v === 'number' ? v : (v?.value ?? v?.count ?? 0),
+        itemStyle: series.data[i % series.data.length]?.itemStyle,
+      }))
+    }
+    if (Array.isArray(sd.labels)) base.xAxis.data = sd.labels
+    else if (Array.isArray(sd) && sd.length && sd[0]?.name) base.xAxis.data = sd.map((x: any) => x.name)
+  }
+  return base
+})
+
+const charts = computed(() => [
+  { title: '帖子总量趋势', sub: '面积图 · 日期 / 帖子数量', opt: areaOpt.value },
+  { title: '情绪变化趋势', sub: '折线图 · 正面 / 中性 / 负面', opt: emotionOpt.value },
+  { title: '各类议题热度变化', sub: '堆叠面积图 · 诈骗 / 治安 / 消防 / 交通 / 设施', opt: stackOpt.value },
+  { title: '各类帖子类型分布', sub: '柱状图 · 按安全类别统计', opt: barOpt.value },
+])
+
+function unwrap(res: any) {
+  if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
+  return res
+}
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    const res: any = await trendsApi.get()
+    const d = unwrap(res) || {}
+    if (d.areaData) areaData.value = d.areaData
+    if (d.emotionData) emotionData.value = d.emotionData
+    if (d.stackData) stackData.value = d.stackData
+    if (d.sourceData) sourceData.value = d.sourceData
+    if (Array.isArray(d.topItems) && d.topItems.length) {
+      topItems.value = d.topItems.map((t: any) => {
+        // pct = 该类别占所有安全帖子的真实占比（0~100）
+        const pct = t.pct ?? 0
+        return {
+          name: t.name ?? t.topic ?? '',
+          pct,
+          count: t.count ?? 0,
+          w: t.w ?? Math.max(10, Math.min(95, pct)),
+          c: t.c ?? (pct > 40 ? 'from-rose-500 to-rose-400' : pct > 20 ? 'from-amber-500 to-amber-400' : 'from-brand-500 to-brand-400'),
+        }
+      })
+    }
+  } catch (err) {
+    console.warn('趋势数据加载失败，使用默认数据', err)
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <template>
   <div class="page">
+    <!-- 加载状态 -->
+    <div v-if="loading" class="flex items-center justify-center gap-2 py-3 text-sm text-slate-400">
+      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
+      数据加载中...
+    </div>
     <!-- 时间切换 -->
     <div class="flex items-center gap-3">
       <span class="text-sm text-slate-600">时间范围</span>
@@ -57,28 +171,30 @@ const topItems = [
       </div>
     </div>
 
-    <!-- TOP5 -->
+    <!-- 议题分布 TOP5 -->
     <div class="card card-pad">
       <div class="flex items-center justify-between mb-5">
         <div>
-          <h3 class="section-title">本周增长最快议题 TOP5</h3>
-          <p class="section-sub mt-0.5">按讨论量环比增速排序</p>
+          <h3 class="section-title">安全议题分布 TOP5</h3>
+          <p class="section-sub mt-0.5">按讨论量占比排序 · 基于全部安全相关帖子</p>
         </div>
-        <span class="badge badge-high">🔥 高增长</span>
+        <span class="badge badge-info">📊 议题分布</span>
       </div>
-      <div class="space-y-4">
+      <div v-if="topItems.length" class="space-y-4">
         <div v-for="(item, i) in topItems" :key="i" class="flex items-center gap-4">
           <span class="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
             :class="i === 0 ? 'bg-rose-100 text-rose-600' : i < 3 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'">
             {{ i + 1 }}
           </span>
-          <span class="w-32 text-sm text-slate-700 font-medium flex-shrink-0">{{ item.name }}</span>
+          <span class="w-36 text-sm text-slate-700 font-medium flex-shrink-0 truncate">{{ item.name }}</span>
           <div class="flex-1 h-2.5 bg-slate-100 overflow-hidden">
-            <div :class="['h-full rounded-full bg-gradient-to-r', item.c]" :style="{ width: item.w + '%' }"></div>
+            <div :class="['h-full bg-gradient-to-r', item.c]" :style="{ width: item.w + '%' }"></div>
           </div>
-          <span :class="['text-sm font-semibold w-16 text-right', item.pct > 50 ? 'text-rose-500' : 'text-amber-500']">↑ {{ item.pct }}%</span>
+          <span class="text-xs text-slate-400 w-12 text-right">{{ item.count ?? '-' }} 条</span>
+          <span :class="['text-sm font-semibold w-14 text-right', item.pct > 40 ? 'text-rose-500' : item.pct > 20 ? 'text-amber-500' : 'text-slate-500']">{{ item.pct }}%</span>
         </div>
       </div>
+      <div v-else class="py-8 text-center text-sm text-slate-400">暂无安全议题数据</div>
     </div>
   </div>
 </template>

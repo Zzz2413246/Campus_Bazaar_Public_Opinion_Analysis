@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { settingsApi } from '@/utils/api'
+
+const loading = ref(false)
 
 const riskThresholds = ref({ high: 70, medium: 40 })
 
@@ -13,10 +16,47 @@ const sources = ref([
   { name: '外部社交媒体数据', desc: '微博 · 小红书 · B站', status: '已连接', ok: true },
   { name: '项目组已有数据', desc: '约10万条社交媒体评论', status: '待导入', ok: false },
 ])
+
+function unwrap(res: any) {
+  if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
+  return res
+}
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    const res: any = await settingsApi.get()
+    const d = unwrap(res) || {}
+    if (d.riskThresholds) {
+      if (d.riskThresholds.high !== undefined) riskThresholds.value.high = d.riskThresholds.high
+      if (d.riskThresholds.medium !== undefined) riskThresholds.value.medium = d.riskThresholds.medium
+    }
+    if (Array.isArray(d.categories) && d.categories.length) {
+      categories.value = d.categories.map((c: any) => (typeof c === 'string' ? c : (c.name ?? c.category ?? '')))
+    }
+    if (Array.isArray(d.sources) && d.sources.length) {
+      sources.value = d.sources.map((s: any) => ({
+        name: s.name ?? s.source ?? '',
+        desc: s.desc ?? s.description ?? s.lastSync ?? '',
+        status: s.status ?? (s.ok ? '已连接' : '待导入'),
+        ok: s.ok ?? (s.status === '已连接' || s.status === 'connected'),
+      }))
+    }
+  } catch (err) {
+    console.warn('设置数据加载失败，使用默认数据', err)
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <template>
   <div class="page">
+    <!-- 加载状态 -->
+    <div v-if="loading" class="flex items-center justify-center gap-2 py-3 text-sm text-slate-400">
+      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
+      数据加载中...
+    </div>
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
       <!-- 风险评分阈值 -->
       <div class="card card-pad">
