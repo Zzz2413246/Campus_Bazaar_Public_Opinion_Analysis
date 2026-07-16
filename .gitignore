@@ -1,5 +1,14 @@
-# 敏感数据
-posts.json
+# 敏感数据 / 原始抓取数据（含用户昵称、头像和帖子正文）
+posts*.json
+backend/data/
+*.mv.db
+*.trace.db
+
+# 本机与私有配置
+.claude/
+.env
+.env.*
+!.env.example
 
 # Node
 node_modules

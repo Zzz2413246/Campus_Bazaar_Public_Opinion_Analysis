@@ -2,6 +2,9 @@
 import { ref, onMounted, computed } from 'vue'
 import BaseChart from '../components/BaseChart.vue'
 import AppIcon from '../components/AppIcon.vue'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import RefreshButton from '@/components/RefreshButton.vue'
+import { toast } from '@/utils/toast'
 import { trendLineOption, donutOption, sparklineOption, palette } from '../utils/chartTheme'
 import { useCountUp } from '../utils/useCountUp'
 import { dashboardApi } from '@/utils/api'
@@ -80,7 +83,8 @@ function unwrap(res: any) {
   return res
 }
 
-onMounted(async () => {
+// 加载仪表盘数据，isManual 标记是否为手动刷新（仅在手动刷新时弹出成功提示）
+async function loadDashboard(isManual = false) {
   loading.value = true
   try {
     const res: any = await dashboardApi.get()
@@ -122,21 +126,30 @@ onMounted(async () => {
     // 图表数据
     if (d.trendData) trendData.value = d.trendData
     if (d.categoryDistribution) categoryDistribution.value = d.categoryDistribution
+    // 仅手动刷新时提示成功
+    if (isManual) {
+      toast.success('数据已更新')
+    }
   } catch (err) {
     console.warn('Dashboard 数据加载失败，使用默认数据', err)
   } finally {
     loading.value = false
   }
+}
+
+onMounted(() => {
+  loadDashboard(false)
 })
 </script>
 
 <template>
   <div class="page">
-    <!-- 加载状态 -->
-    <div v-if="loading" class="flex items-center justify-center gap-2 py-3 text-sm text-slate-400">
-      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
-      数据加载中...
+    <!-- 顶部操作栏：刷新按钮 -->
+    <div class="flex items-center justify-end mb-1">
+      <RefreshButton :on-refresh="() => loadDashboard(true)" />
     </div>
+    <!-- 加载状态 -->
+    <LoadingSpinner v-if="loading" />
     <!-- 统计卡片 -->
     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
       <div

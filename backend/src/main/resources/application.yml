@@ -5,24 +5,37 @@ spring:
   application:
     name: yuqing-backend
   datasource:
-    url: jdbc:h2:mem:yuqing;DB_CLOSE_DELAY=-1;MODE=MySQL
+    url: jdbc:h2:file:./data/yuqing;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=MySQL
     driver-class-name: org.h2.Driver
     username: sa
     password:
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: update
     show-sql: false
     properties:
       hibernate:
         format_sql: true
+        jdbc:
+          batch_size: 100
+        order_inserts: true
+        order_updates: true
   h2:
     console:
       enabled: true
       path: /h2-console
   jackson:
     default-property-inclusion: non_null
+  task:
+    scheduling:
+      enabled: true
 
 # 数据文件路径
 yuqing:
-  data-file: ../posts.json
+  # 新文件已包含旧 907 条数据，启动时按帖子 ID 增量同步，不会重复导入。
+  data-file: "../posts(2).json"
+  # 定时任务配置（每小时执行一次分析）
+  schedule:
+    analyze-cron: "0 0 * * * ?"
+    aggregate-cron: "0 5 * * * ?"

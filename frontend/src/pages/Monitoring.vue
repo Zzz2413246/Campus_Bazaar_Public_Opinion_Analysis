@@ -1,7 +1,9 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
-import { postApi } from '@/utils/api'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import { postApi, settingsApi } from '@/utils/api'
 
 const loading = ref(false)
 const searchKeyword = ref('')
@@ -13,6 +15,10 @@ const posts = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
 const size = ref(20)
+const categoryOptions = ref<string[]>([
+  '诈骗与财产安全', '治安与人身安全', '消防与用电安全', '校园交通安全',
+  '宿舍设施问题', '食堂与餐饮问题', '突发事件', '其他',
+])
 
 function unwrap(res: any) {
   if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
@@ -94,7 +100,20 @@ const pageNumbers = computed(() => {
   return [1, '...', cur - 1, cur, cur + 1, '...', tp]
 })
 
-onMounted(loadPosts)
+async function loadCategories() {
+  try {
+    const res: any = await settingsApi.get()
+    const d = unwrap(res) || {}
+    if (Array.isArray(d.categories) && d.categories.length) categoryOptions.value = d.categories.map(String)
+  } catch (err) {
+    console.warn('分类设置加载失败，使用默认分类', err)
+  }
+}
+
+onMounted(() => {
+  loadPosts()
+  loadCategories()
+})
 
 const emotionIcon = (e: string) => e.includes('负面') ? 'anger' : e.includes('中性') ? 'meh' : 'smile'
 const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.includes('中性') ? 'badge-neutral' : 'badge-success'
@@ -117,9 +136,7 @@ const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.incl
         </div>
         <select v-model="filterCategory" class="select">
           <option value="">全部类型</option>
-          <option>诈骗与财产安全</option><option>治安与人身安全</option>
-          <option>消防与用电安全</option><option>校园交通安全</option>
-          <option>宿舍设施问题</option><option>食堂与餐饮问题</option><option>突发事件</option><option>其他</option>
+          <option v-for="category in categoryOptions" :key="category" :value="category">{{ category }}</option>
         </select>
         <select v-model="filterEmotion" class="select">
           <option value="">全部情绪</option><option>正面</option><option>中性</option><option>负面</option>
@@ -132,10 +149,7 @@ const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.incl
     </div>
 
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex items-center justify-center gap-2 py-8 text-sm text-slate-400">
-      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
-      数据加载中...
-    </div>
+    <LoadingSpinner v-if="loading" />
 
     <!-- 帖子列表 -->
     <div v-else-if="posts.length" class="space-y-3">
@@ -166,9 +180,7 @@ const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.incl
     </div>
 
     <!-- 空状态 -->
-    <div v-else class="card card-pad text-center py-12 text-sm text-slate-400">
-      暂无符合条件的帖子
-    </div>
+    <EmptyState v-else text="暂无符合条件的帖子" hint="尝试调整筛选条件" />
 
     <!-- 分页 -->
     <div v-if="totalPages > 1" class="flex items-center justify-center gap-1.5">

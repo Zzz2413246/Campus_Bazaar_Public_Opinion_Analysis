@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  LayoutDashboard, Radar, Siren, TrendingUp, Bot, FileText, Settings,
+  LayoutDashboard, Radar, Siren, TrendingUp, Bot, FileText, Settings, Database,
   ShieldCheck, Bell, Search, ChevronLeft, ChevronRight,
   MessageSquare, AlertTriangle, Smile, Meh, Angry, MapPin, Tag, Megaphone,
   ThumbsUp, MessageCircle, Clock, ArrowLeft, ArrowRight, ArrowUp, ArrowDown,
@@ -10,8 +10,12 @@ import {
 
 const props = withDefaults(defineProps<{
   name: string
-  size?: number
-}>(), { size: 18 })
+  size?: number | string
+  ariaLabel?: string
+}>(), {
+  size: 18,
+  ariaLabel: '',
+})
 
 const map: Record<string, LucideIcon> = {
   'layout-dashboard': LayoutDashboard,
@@ -49,9 +53,17 @@ const map: Record<string, LucideIcon> = {
   'x': X,
   'sparkles': Sparkles,
   'send': Send,
+  'database': Database,
 }
 </script>
 
 <template>
-  <component :is="map[props.name]" :size="props.size" :stroke-width="2" />
+  <component
+    :is="map[props.name]"
+    :size="Number(props.size)"
+    :stroke-width="2"
+    :aria-label="props.ariaLabel || props.name"
+    role="img"
+    :aria-hidden="props.ariaLabel ? undefined : 'true'"
+  />
 </template>

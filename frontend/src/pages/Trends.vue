@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import BaseChart from '../components/BaseChart.vue'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import RefreshButton from '@/components/RefreshButton.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import { areaOption, emotionOption, stackAreaOption, barOption, palette } from '../utils/chartTheme'
 import { trendsApi } from '@/utils/api'
 
@@ -106,7 +109,8 @@ function unwrap(res: any) {
   return res
 }
 
-onMounted(async () => {
+// 加载趋势数据，供 onMounted 与手动刷新调用
+async function loadTrends() {
   loading.value = true
   try {
     const res: any = await trendsApi.get()
@@ -133,16 +137,15 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadTrends)
 </script>
 
 <template>
   <div class="page">
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex items-center justify-center gap-2 py-3 text-sm text-slate-400">
-      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
-      数据加载中...
-    </div>
+    <LoadingSpinner v-if="loading" />
     <!-- 时间切换 -->
     <div class="flex items-center gap-3">
       <span class="text-sm text-slate-600">时间范围</span>
@@ -154,6 +157,8 @@ onMounted(async () => {
           :class="['seg-item', timeRange === r.k ? 'seg-item-active' : '']"
         >{{ r.v }}</span>
       </div>
+      <!-- 刷新按钮 -->
+      <RefreshButton :on-refresh="loadTrends" class="ml-auto" />
     </div>
 
     <!-- 图表网格 -->
@@ -194,7 +199,8 @@ onMounted(async () => {
           <span :class="['text-sm font-semibold w-14 text-right', item.pct > 40 ? 'text-rose-500' : item.pct > 20 ? 'text-amber-500' : 'text-slate-500']">{{ item.pct }}%</span>
         </div>
       </div>
-      <div v-else class="py-8 text-center text-sm text-slate-400">暂无安全议题数据</div>
+      <!-- 无数据时显示空状态 -->
+      <EmptyState v-else text="暂无安全议题数据" />
     </div>
   </div>
 </template>

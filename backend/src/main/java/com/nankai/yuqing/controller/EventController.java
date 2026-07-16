@@ -5,6 +5,7 @@ import com.nankai.yuqing.model.Post;
 import com.nankai.yuqing.repository.EventRepository;
 import com.nankai.yuqing.repository.PostRepository;
 import com.nankai.yuqing.service.AnalysisService;
+import com.nankai.yuqing.service.AnalysisSettingsService;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.format.DateTimeFormatter;
@@ -20,11 +21,16 @@ public class EventController {
     private final EventRepository eventRepository;
     private final PostRepository postRepository;
     private final AnalysisService analysisService;
+    private final AnalysisSettingsService settingsService;
 
-    public EventController(EventRepository eventRepository, PostRepository postRepository, AnalysisService analysisService) {
+    public EventController(EventRepository eventRepository,
+                           PostRepository postRepository,
+                           AnalysisService analysisService,
+                           AnalysisSettingsService settingsService) {
         this.eventRepository = eventRepository;
         this.postRepository = postRepository;
         this.analysisService = analysisService;
+        this.settingsService = settingsService;
     }
 
     /**
@@ -146,7 +152,12 @@ public class EventController {
         if (status != null) event.setStatus(status);
         if (risk != null) {
             event.setRisk(risk);
-            event.setRiskScore("高".equals(risk) ? 80 : "中".equals(risk) ? 50 : 20);
+            AnalysisSettingsService.Snapshot settings = settingsService.getSnapshot();
+            event.setRiskScore("高".equals(risk)
+                ? settings.highThreshold()
+                : "中".equals(risk)
+                    ? settings.mediumThreshold()
+                    : Math.max(0, settings.mediumThreshold() - 20));
         }
         event.setUpdatedAt(java.time.LocalDateTime.now());
         eventRepository.save(event);

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import { reportApi } from '@/utils/api'
+import { toast } from '@/utils/toast'
 
 const reportType = ref<'daily' | 'weekly' | 'event'>('daily')
 
@@ -98,7 +100,7 @@ async function generateReport() {
 async function copyText() {
   try {
     await navigator.clipboard.writeText(previewContent.value)
-    alert('报告文本已复制到剪贴板')
+    toast.success('报告文本已复制到剪贴板')
   } catch (err) {
     console.warn('复制失败', err)
     alert('复制失败，请手动选择文本复制')
@@ -114,6 +116,8 @@ function exportFile(format: string) {
   a.download = `${selectedReport.value.title || '报告'}.${format === 'pdf' ? 'txt' : 'doc'}`
   a.click()
   URL.revokeObjectURL(url)
+  // 导出成功提示
+  toast.success('文件已导出')
 }
 
 onMounted(async () => {
@@ -145,10 +149,7 @@ onMounted(async () => {
 <template>
   <div class="page">
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex items-center justify-center gap-2 py-3 text-sm text-slate-400">
-      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
-      数据加载中...
-    </div>
+    <LoadingSpinner v-if="loading" />
     <div class="flex items-center gap-3 flex-wrap">
       <div class="seg">
         <span

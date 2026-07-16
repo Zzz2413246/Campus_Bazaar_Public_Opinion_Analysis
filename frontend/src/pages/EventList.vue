@@ -1,7 +1,10 @@
-﻿﻿<script setup lang="ts">
+﻿﻿﻿﻿﻿<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { eventApi } from '@/utils/api'
+import { eventApi, settingsApi } from '@/utils/api'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import RefreshButton from '@/components/RefreshButton.vue'
 
 const router = useRouter()
 
@@ -20,6 +23,10 @@ const events = ref([
 const filterRisk = ref('')
 const filterCategory = ref('')
 const filterStatus = ref('')
+const categoryOptions = ref<string[]>([
+  '诈骗与财产安全', '治安与人身安全', '消防与用电安全', '校园交通安全',
+  '宿舍设施问题', '食堂与餐饮问题', '突发事件',
+])
 
 // 根据筛选条件过滤事件列表
 const filteredEvents = computed(() => {
@@ -41,7 +48,8 @@ function unwrap(res: any) {
   return res
 }
 
-onMounted(async () => {
+// 加载事件列表数据
+async function loadEvents() {
   loading.value = true
   try {
     const res: any = await eventApi.list()
@@ -63,16 +71,30 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+}
+
+async function loadCategories() {
+  try {
+    const res: any = await settingsApi.get()
+    const d = unwrap(res) || {}
+    if (Array.isArray(d.categories)) {
+      categoryOptions.value = d.categories.map(String).filter((name: string) => name !== '其他')
+    }
+  } catch (err) {
+    console.warn('分类设置加载失败，使用默认分类', err)
+  }
+}
+
+onMounted(() => {
+  loadEvents()
+  loadCategories()
 })
 </script>
 
 <template>
   <div class="page">
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex items-center justify-center gap-2 py-3 text-sm text-slate-400">
-      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
-      数据加载中...
-    </div>
+    <LoadingSpinner v-if="loading" />
     <!-- 筛选栏 -->
     <div class="card card-pad flex flex-wrap items-center gap-3">
       <span class="text-sm text-slate-500">筛选</span>
@@ -80,18 +102,22 @@ onMounted(async () => {
         <option value="">全部风险等级</option><option value="高">高风险</option><option value="中">中风险</option><option value="低">低风险</option>
       </select>
       <select class="select" v-model="filterCategory">
-        <option value="">全部事件类型</option><option value="诈骗与财产安全">诈骗与财产安全</option><option value="治安与人身安全">治安与人身安全</option><option value="消防与用电安全">消防与用电安全</option><option value="校园交通安全">校园交通安全</option><option value="宿舍设施问题">宿舍设施问题</option><option value="食堂与餐饮问题">食堂与餐饮问题</option>
+        <option value="">全部事件类型</option>
+        <option v-for="category in categoryOptions" :key="category" :value="category">{{ category }}</option>
       </select>
       <select class="select" v-model="filterStatus">
         <option value="">全部状态</option><option value="待研判">待研判</option><option value="处理中">处理中</option><option value="已确认">已确认</option><option value="已忽略">已忽略</option>
       </select>
       <div class="flex-1"></div>
+      <RefreshButton :on-refresh="loadEvents" />
       <span class="text-sm text-slate-500">共 <span class="font-semibold text-slate-700">{{ filteredEvents.length }}</span> 个事件</span>
     </div>
 
     <!-- 事件表格 -->
     <div class="card overflow-x-auto">
-      <table class="table-base table-row-hover min-w-[1000px]">
+      <!-- 表格空状态 -->
+      <EmptyState v-if="!filteredEvents.length" text="暂无事件" />
+      <table v-else class="table-base table-row-hover min-w-[1000px]">
         <thead>
           <tr>
             <th class="w-36">风险等级</th>

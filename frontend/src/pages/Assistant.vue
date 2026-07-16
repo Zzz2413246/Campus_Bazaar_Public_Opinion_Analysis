@@ -2,6 +2,7 @@
 import { ref, nextTick } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import { assistantApi } from '@/utils/api'
+import { toast } from '@/utils/toast'
 
 const inputText = ref('')
 const thinking = ref(false)
@@ -46,6 +47,8 @@ async function sendMessage(text?: string) {
     messages.value.push({ role: 'assistant', content: answer, time: nowTime() })
   } catch (err) {
     console.warn('助手请求失败', err)
+    // 发送消息失败时通过 toast 提示
+    toast.error('发送失败，请稍后重试')
     messages.value.push({
       role: 'assistant',
       content: `收到你的问题：「${msg}」\n\n抱歉，当前无法连接分析服务，请稍后再试。`,

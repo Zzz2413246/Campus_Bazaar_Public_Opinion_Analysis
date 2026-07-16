@@ -2,6 +2,8 @@ package com.nankai.yuqing.controller;
 
 import com.nankai.yuqing.model.Post;
 import com.nankai.yuqing.repository.PostRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.format.DateTimeFormatter;
@@ -29,20 +31,22 @@ public class PostController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        List<Post> posts = postRepository.searchPosts(keyword, category, emotion, source);
-
-        // 分页
-        int total = posts.size();
-        int from = Math.min((page - 1) * size, total);
-        int to = Math.min(from + size, total);
-        List<Post> pageData = posts.subList(from, to);
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, Math.min(size, 200));
+        Page<Post> resultPage = postRepository.searchPosts(
+            blankToNull(keyword), blankToNull(category), blankToNull(emotion), blankToNull(source),
+            PageRequest.of(safePage - 1, safeSize));
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("total", total);
-        result.put("page", page);
-        result.put("size", size);
-        result.put("data", pageData.stream().map(this::toMap).toList());
+        result.put("total", resultPage.getTotalElements());
+        result.put("page", safePage);
+        result.put("size", safeSize);
+        result.put("data", resultPage.getContent().stream().map(this::toMap).toList());
         return result;
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     @GetMapping("/{id}")
@@ -84,6 +88,9 @@ public class PostController {
         m.put("location", p.getLocation());
         m.put("problem", p.getProblem());
         m.put("demand", p.getDemand());
+        m.put("topic", p.getTopic());
+        m.put("classificationConfidence", p.getClassificationConfidence());
+        m.put("analysisVersion", p.getAnalysisVersion());
         m.put("source", p.getCategoryName());
 
         // 时间描述

@@ -82,6 +82,18 @@ public class Post {
     @Column(name = "event_id")
     private String eventId;
 
+    /** 当前分析规则版本，便于后续规则升级后识别需要重算的数据。 */
+    @Column(name = "analysis_version")
+    private String analysisVersion;
+
+    /** 安全分类置信度（0-100），非安全内容为 0。 */
+    @Column(name = "classification_confidence")
+    private Integer classificationConfidence = 0;
+
+    /** 比安全大类更细的话题标签，用于事件聚合。 */
+    @Column(name = "topic")
+    private String topic;
+
     // 构造函数
     public Post() {}
 
@@ -131,4 +143,10 @@ public class Post {
     public void setDemand(String demand) { this.demand = demand; }
     public String getEventId() { return eventId; }
     public void setEventId(String eventId) { this.eventId = eventId; }
+    public String getAnalysisVersion() { return analysisVersion; }
+    public void setAnalysisVersion(String analysisVersion) { this.analysisVersion = analysisVersion; }
+    public Integer getClassificationConfidence() { return classificationConfidence; }
+    public void setClassificationConfidence(Integer classificationConfidence) { this.classificationConfidence = classificationConfidence; }
+    public String getTopic() { return topic; }
+    public void setTopic(String topic) { this.topic = topic; }
 }

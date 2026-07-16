@@ -3,8 +3,10 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BaseChart from '../components/BaseChart.vue'
 import AppIcon from '../components/AppIcon.vue'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import { miniTrendOption, radarOption } from '../utils/chartTheme'
 import { eventApi } from '@/utils/api'
+import { toast } from '@/utils/toast'
 
 const router = useRouter()
 const route = useRoute()
@@ -44,7 +46,8 @@ async function saveDisposition() {
       status: dispositionStatus.value,
       risk: adjustedRisk.value,
     })
-    alert('研判结果已保存')
+    // 研判保存成功提示
+    toast.success('研判结果已保存')
   } catch (err) {
     console.error('保存研判失败', err)
     alert('保存失败，请稍后重试')
@@ -143,10 +146,7 @@ onMounted(async () => {
 <template>
   <div class="page">
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex items-center justify-center gap-2 py-3 text-sm text-slate-400">
-      <span class="w-4 h-4 border-2 border-slate-300 border-t-brand-500 rounded-full animate-spin"></span>
-      数据加载中...
-    </div>
+    <LoadingSpinner v-if="loading" />
     <!-- 返回 + 标题 -->
     <div class="flex items-center gap-3 flex-wrap">
       <button @click="router.push('/events')" class="btn btn-ghost !py-1.5 !px-3 text-xs"><AppIcon name="arrow-left" :size="14" /> 返回列表</button>
