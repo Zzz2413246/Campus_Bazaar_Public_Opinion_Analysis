@@ -1,5 +1,6 @@
 package com.nankai.yuqing.controller;
 
+import com.nankai.yuqing.service.CommentImportService;
 import com.nankai.yuqing.service.DataImportService;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,9 +19,12 @@ import java.util.Map;
 public class DataController {
 
     private final DataImportService dataImportService;
+    private final CommentImportService commentImportService;
 
-    public DataController(DataImportService dataImportService) {
+    public DataController(DataImportService dataImportService,
+                          CommentImportService commentImportService) {
         this.dataImportService = dataImportService;
+        this.commentImportService = commentImportService;
     }
 
     /**
@@ -33,6 +37,19 @@ public class DataController {
     @PostMapping("/import")
     public Map<String, Object> importPosts(@RequestBody List<Map<String, Object>> rawData) {
         return dataImportService.importPosts(rawData);
+    }
+
+    /**
+     * 批量增量导入评论，发生新增或更新后统一重算，确保评论立即参与评判。
+     */
+    @PostMapping("/comments/import")
+    public Map<String, Object> importComments(@RequestBody List<Map<String, Object>> rawData) {
+        Map<String, Object> result = new java.util.LinkedHashMap<>(
+            commentImportService.importComments(rawData));
+        int changed = number(result.get("imported")) + number(result.get("updated"));
+        if (changed > 0) dataImportService.reanalyzeAll();
+        result.put("reanalyzed", changed > 0);
+        return result;
     }
 
     /**
@@ -71,5 +88,9 @@ public class DataController {
     public Map<String, Object> clearAll() {
         dataImportService.clearAll();
         return Map.of("success", true, "message", "所有数据已清空");
+    }
+
+    private int number(Object value) {
+        return value instanceof Number number ? number.intValue() : 0;
     }
 }

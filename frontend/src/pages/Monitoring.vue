@@ -4,7 +4,9 @@ import AppIcon from '../components/AppIcon.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { postApi, settingsApi } from '@/utils/api'
+import { useRouter } from 'vue-router'
 
+const router = useRouter()
 const loading = ref(false)
 const searchKeyword = ref('')
 const filterCategory = ref('')
@@ -51,6 +53,12 @@ async function loadPosts() {
         location: p.location ?? '',
         problem: p.problem ?? '',
         demand: p.demand ?? '',
+        analyzedComments: p.analyzedCommentCount ?? 0,
+        commentRiskAdjustment: p.commentRiskAdjustment ?? 0,
+        commentSignal: p.commentSignal ?? '',
+        commentSuggestedCategory: p.commentSuggestedCategory ?? '',
+        commentSuggestionCount: p.commentSuggestionCount ?? 0,
+        analysisBasis: p.analysisBasis ?? '原帖文本',
       }))
       total.value = d.total ?? posts.value.length
     } else if (Array.isArray(d)) {
@@ -66,6 +74,12 @@ async function loadPosts() {
         location: p.location ?? '',
         problem: p.problem ?? '',
         demand: p.demand ?? '',
+        analyzedComments: p.analyzedCommentCount ?? 0,
+        commentRiskAdjustment: p.commentRiskAdjustment ?? 0,
+        commentSignal: p.commentSignal ?? '',
+        commentSuggestedCategory: p.commentSuggestedCategory ?? '',
+        commentSuggestionCount: p.commentSuggestionCount ?? 0,
+        analysisBasis: p.analysisBasis ?? '原帖文本',
       }))
       total.value = d.length
     }
@@ -86,6 +100,10 @@ function goPage(p: number) {
   if (p < 1 || p > totalPages.value) return
   page.value = p
   loadPosts()
+}
+
+function openPost(id: string) {
+  router.push(`/monitoring/${id}`)
 }
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size.value)))
@@ -144,7 +162,7 @@ const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.incl
         <select v-model="filterSource" class="select">
           <option value="">全部分类</option><option>打听求助</option><option>二手闲置</option><option>恋爱交友</option><option>其他</option>
         </select>
-        <span class="text-xs text-slate-400 ml-auto">共 {{ total }} 条</span>
+        <span class="text-sm text-slate-500 ml-auto whitespace-nowrap">共 {{ total }} 条</span>
       </div>
     </div>
 
@@ -157,6 +175,10 @@ const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.incl
         v-for="post in posts"
         :key="post.id"
         class="card card-pad card-hover cursor-pointer"
+        role="link"
+        tabindex="0"
+        @click="openPost(post.id)"
+        @keyup.enter="openPost(post.id)"
       >
         <div class="flex items-center gap-2 mb-2.5 flex-wrap">
           <span class="badge badge-info">{{ post.category }}</span>
@@ -164,17 +186,32 @@ const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.incl
             <AppIcon :name="emotionIcon(post.emotion)" :size="13" /> {{ post.emotion }}
           </span>
           <span class="text-slate-300">·</span>
-          <span class="text-xs text-slate-500">{{ post.source }}</span>
+          <span class="text-sm text-slate-600">{{ post.source }}</span>
           <span class="text-slate-300">·</span>
-          <span class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="message-circle" :size="13" /> {{ post.comments }}</span>
-          <span class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="thumbs-up" :size="13" /> {{ post.likes }}</span>
-          <span class="text-xs text-slate-400 ml-auto">{{ post.time }}</span>
+          <span class="text-sm text-slate-600 inline-flex items-center gap-1"><AppIcon name="message-circle" :size="14" /> {{ post.comments }}</span>
+          <span v-if="post.analyzedComments > 0" class="text-sm text-brand-700 bg-brand-50 px-2 py-0.5">
+            评论评判 {{ post.analyzedComments }} 条
+          </span>
+          <span class="text-sm text-slate-600 inline-flex items-center gap-1"><AppIcon name="thumbs-up" :size="14" /> {{ post.likes }}</span>
+          <span class="text-sm font-medium text-slate-700 ml-auto">{{ post.time }}</span>
         </div>
-        <p class="text-sm text-slate-700 leading-relaxed">{{ post.content }}</p>
+        <p class="text-[15px] text-slate-800 leading-7">{{ post.content }}</p>
+        <div
+          v-if="post.commentRiskAdjustment > 0"
+          class="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-100 px-3 py-2"
+        >
+          {{ post.analysisBasis }}：{{ post.commentSignal }}，风险加权 +{{ post.commentRiskAdjustment }} 分
+        </div>
+        <div
+          v-else-if="post.commentSuggestedCategory"
+          class="mt-2 text-sm text-brand-700 bg-brand-50 border border-brand-100 px-3 py-2"
+        >
+          评论复核提示：{{ post.commentSignal }}。该提示未改变原帖分类和风险分。
+        </div>
         <div class="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100 flex-wrap">
-          <span v-if="post.location" class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="map-pin" :size="13" /> {{ post.location }}</span>
-          <span v-if="post.problem" class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="tag" :size="13" /> {{ post.problem }}</span>
-          <span v-if="post.demand" class="text-xs text-slate-500 inline-flex items-center gap-1"><AppIcon name="megaphone" :size="13" /> {{ post.demand }}</span>
+          <span v-if="post.location" class="text-sm text-slate-600 inline-flex items-center gap-1"><AppIcon name="map-pin" :size="14" /> {{ post.location }}</span>
+          <span v-if="post.problem" class="text-sm text-slate-600 inline-flex items-center gap-1"><AppIcon name="tag" :size="14" /> {{ post.problem }}</span>
+          <span v-if="post.demand" class="text-sm text-slate-600 inline-flex items-center gap-1"><AppIcon name="megaphone" :size="14" /> {{ post.demand }}</span>
         </div>
       </div>
     </div>

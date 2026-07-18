@@ -72,7 +72,7 @@ onMounted(loadStats)
 </script>
 
 <template>
-  <div class="page">
+  <div class="page large-detail-page">
     <!-- 页面头部 -->
     <div class="flex items-center justify-between mb-5">
       <div>
@@ -80,6 +80,48 @@ onMounted(loadStats)
         <p class="text-sm text-slate-500 mt-1">定期维护数据、增量导入、重新分析</p>
       </div>
       <RefreshButton :on-refresh="loadStats" />
+    </div>
+
+    <!-- 评论评判数据 -->
+    <div class="card card-pad mt-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h3 class="section-title">评论评判数据</h3>
+          <p class="text-xs text-slate-400 mt-1">评论只作为原帖的增量佐证，单条评论不会改变原分类</p>
+        </div>
+        <span class="text-xs text-brand-700 bg-brand-50 px-2.5 py-1">
+          帖子覆盖率 {{ stats.commentStats?.coverage || 0 }}%
+        </span>
+      </div>
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div class="p-3 bg-brand-50 border border-brand-100">
+          <div class="text-xs text-slate-500">评论总数</div>
+          <div class="text-lg font-semibold text-brand-700 mt-1">{{ stats.commentStats?.totalComments || 0 }}</div>
+        </div>
+        <div class="p-3 bg-emerald-50 border border-emerald-100">
+          <div class="text-xs text-slate-500">已关联评论</div>
+          <div class="text-lg font-semibold text-emerald-700 mt-1">{{ stats.commentStats?.matchedComments || 0 }}</div>
+        </div>
+        <div class="p-3 bg-slate-50 border border-slate-100">
+          <div class="text-xs text-slate-500">已覆盖帖子</div>
+          <div class="text-lg font-semibold text-slate-700 mt-1">{{ stats.commentStats?.assistedPosts || 0 }}</div>
+        </div>
+        <div class="p-3 bg-rose-50 border border-rose-100">
+          <div class="text-xs text-slate-500">负面评论</div>
+          <div class="text-lg font-semibold text-rose-700 mt-1">{{ stats.commentStats?.negativeComments || 0 }}</div>
+        </div>
+        <div class="p-3 bg-amber-50 border border-amber-100">
+          <div class="text-xs text-slate-500">风险佐证评论</div>
+          <div class="text-lg font-semibold text-amber-700 mt-1">{{ stats.commentStats?.safetyComments || 0 }}</div>
+        </div>
+      </div>
+      <p v-if="stats.commentStats?.unmatchedComments" class="text-xs text-slate-400 mt-3">
+        另有 {{ stats.commentStats.unmatchedComments }} 条评论暂未匹配当前帖子，已保留但不参与评分。
+      </p>
+      <p v-if="stats.commentStats?.adjustedPosts || stats.commentStats?.suggestedPosts" class="text-xs text-slate-500 mt-2">
+        当前有 {{ stats.commentStats.adjustedPosts }} 篇帖子获得评论风险加权；另有
+        {{ stats.commentStats.suggestedPosts || 0 }} 篇由评论共识生成了人工复核提示，但未改写原帖分类。
+      </p>
     </div>
 
     <!-- 分析质量 -->
@@ -236,8 +278,10 @@ onMounted(loadStats)
         <strong>提示：</strong>
         <ul class="list-disc list-inside mt-1 space-y-1">
           <li>重新分析会对所有帖子重新进行分类、情绪识别和风险评分，适用于更新关键词规则后</li>
+          <li>评论通过 thread_id 与帖子 id 自动关联，只在形成同类风险佐证时参与加权</li>
           <li>清空数据后需重新导入，谨慎操作</li>
           <li>增量导入可通过 API POST /api/data/import 进行</li>
+          <li>评论增量导入可通过 API POST /api/data/comments/import 进行</li>
         </ul>
       </div>
     </div>

@@ -33,8 +33,14 @@ spring:
 
 # 数据文件路径
 yuqing:
+  auth:
+    nickname: "管理员"
+    password: "123456"
+    session-hours: 24
   # 新文件已包含旧 907 条数据，启动时按帖子 ID 增量同步，不会重复导入。
   data-file: "../posts(2).json"
+  # 评论按 comment_id 增量同步，通过 thread_id 与帖子 id 关联。
+  comment-file: "../comments.json"
   # 定时任务配置（每小时执行一次分析）
   schedule:
     analyze-cron: "0 0 * * * ?"

@@ -4,6 +4,12 @@ const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     {
+      path: '/login',
+      name: 'Login',
+      meta: { title: '登录', public: true },
+      component: () => import('@/pages/Login.vue'),
+    },
+    {
       path: '/',
       component: () => import('@/layouts/MainLayout.vue'),
       redirect: '/dashboard',
@@ -21,6 +27,12 @@ const router = createRouter({
           component: () => import('@/pages/Monitoring.vue'),
         },
         {
+          path: 'monitoring/:id',
+          name: 'PostDetail',
+          meta: { title: '帖子详情', hidden: true },
+          component: () => import('@/pages/PostDetail.vue'),
+        },
+        {
           path: 'events',
           name: 'EventList',
           meta: { title: '事件管理', icon: 'siren' },
@@ -35,14 +47,14 @@ const router = createRouter({
         {
           path: 'trends',
           name: 'Trends',
-          meta: { title: '趋势分析', icon: 'trending-up' },
-          component: () => import('@/pages/Trends.vue'),
+          meta: { title: '趋势分析', hidden: true },
+          redirect: '/dashboard',
         },
         {
           path: 'assistant',
           name: 'Assistant',
-          meta: { title: '智能助手', icon: 'bot' },
-          component: () => import('@/pages/Assistant.vue'),
+          meta: { title: '智能助手', hidden: true },
+          redirect: '/dashboard',
         },
         {
           path: 'reports',
@@ -65,6 +77,15 @@ const router = createRouter({
       ],
     },
   ],
+})
+
+router.beforeEach((to) => {
+  const loggedIn = Boolean(localStorage.getItem('yuqing_token'))
+  if (!to.meta.public && !loggedIn) {
+    return { path: '/login', query: { redirect: to.fullPath } }
+  }
+  if (to.path === '/login' && loggedIn) return '/dashboard'
+  return true
 })
 
 export default router

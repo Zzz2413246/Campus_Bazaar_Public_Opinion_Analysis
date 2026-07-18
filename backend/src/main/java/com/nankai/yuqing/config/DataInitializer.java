@@ -2,14 +2,12 @@ package com.nankai.yuqing.config;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nankai.yuqing.model.Post;
-import com.nankai.yuqing.repository.PostRepository;
-import com.nankai.yuqing.service.AnalysisService;
 import com.nankai.yuqing.service.DataImportService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
@@ -23,21 +21,19 @@ import java.util.Map;
  * 因此替换为更大的数据文件后无需清空原数据库。
  */
 @Component
+@Order(1)
 public class DataInitializer implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
     private final DataImportService dataImportService;
-    private final PostRepository postRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${yuqing.data-file:../posts(2).json}")
     private String dataFile;
 
     public DataInitializer(DataImportService dataImportService,
-                           PostRepository postRepository,
                            ObjectMapper objectMapper) {
         this.dataImportService = dataImportService;
-        this.postRepository = postRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -51,24 +47,11 @@ public class DataInitializer implements CommandLineRunner {
             }
 
             Map<String, Object> result = dataImportService.importPosts(rawData);
-            int imported = ((Number) result.getOrDefault("imported", 0)).intValue();
             log.info("启动数据同步完成：{}", result);
 
-            // 数据没有新增，但规则版本发生变化时仍自动重算一次。
-            if (imported == 0 && hasOutdatedAnalysis()) {
-                log.info("检测到旧版分析结果，开始升级到规则 {}", AnalysisService.ANALYSIS_VERSION);
-                dataImportService.reanalyzeAll();
-            }
         } catch (Exception e) {
             log.error("数据初始化失败", e);
         }
-    }
-
-    private boolean hasOutdatedAnalysis() {
-        for (Post post : postRepository.findAll()) {
-            if (!AnalysisService.ANALYSIS_VERSION.equals(post.getAnalysisVersion())) return true;
-        }
-        return false;
     }
 
     private List<Map<String, Object>> loadData() throws Exception {

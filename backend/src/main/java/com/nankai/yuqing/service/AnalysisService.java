@@ -2,7 +2,9 @@ package com.nankai.yuqing.service;
 
 import com.nankai.yuqing.model.EventEntity;
 import com.nankai.yuqing.model.Post;
+import com.nankai.yuqing.model.PostComment;
 import com.nankai.yuqing.repository.EventRepository;
+import com.nankai.yuqing.repository.PostCommentRepository;
 import com.nankai.yuqing.repository.PostRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,38 +23,87 @@ import java.util.stream.Collectors;
 /**
  * 校园安全文本分析服务。
  *
- * <p>规则 2.0 的原则是“宁可少报，不把普通交易误报成安全事件”：
+ * <p>规则 2.1.3 的原则是“宁可少报，不把普通交易误报成安全事件”：
  * 使用带权短语、标题加权、来源排除和上下文组合替代原来的单字命中；
- * 事件按安全类别、细分话题和自然周聚合，避免把几十天内不相关的帖子合并。</p>
+ * 事件按安全类别、细分话题和自然周聚合，避免把几十天内不相关的帖子合并。
+ * 评论只作为增量佐证：评论不覆盖原帖分类，多条同类证据只生成复核提示；
+ * 对已有分类的负面情绪和互动热度只提供有上限的风险加权。</p>
  */
 @Service
 public class AnalysisService {
 
-    public static final String ANALYSIS_VERSION = "2.0";
+    public static final String ANALYSIS_VERSION = "2.1.3";
     private static final int CATEGORY_THRESHOLD = 5;
+    private static final int FIXED_HIGH_RISK_THRESHOLD = 70;
+    private static final int FIXED_MEDIUM_RISK_THRESHOLD = 40;
     private static final Logger log = LoggerFactory.getLogger(AnalysisService.class);
 
     private final PostRepository postRepository;
     private final EventRepository eventRepository;
     private final AnalysisSettingsService settingsService;
+    private final PostCommentRepository commentRepository;
 
     @Autowired
     public AnalysisService(PostRepository postRepository,
                            EventRepository eventRepository,
-                           AnalysisSettingsService settingsService) {
+                           AnalysisSettingsService settingsService,
+                           PostCommentRepository commentRepository) {
         this.postRepository = postRepository;
         this.eventRepository = eventRepository;
         this.settingsService = settingsService;
+        this.commentRepository = commentRepository;
+    }
+
+    /** 兼容现有设置测试和独立调用。 */
+    public AnalysisService(PostRepository postRepository,
+                           EventRepository eventRepository,
+                           AnalysisSettingsService settingsService) {
+        this(postRepository, eventRepository, settingsService, null);
     }
 
     /** 单元测试兼容构造器，使用默认阈值和内置分类。 */
     public AnalysisService(PostRepository postRepository, EventRepository eventRepository) {
-        this(postRepository, eventRepository, null);
+        this(postRepository, eventRepository, null, null);
     }
 
     private record CategoryRule(String category, int severity, Map<String, Integer> phrases) {}
     private record Classification(String category, int confidence, int evidenceScore, int severity) {
         static Classification none() { return new Classification(null, 0, 0, 0); }
+    }
+    private record CommentSignal(
+        int total,
+        int negative,
+        int totalLikes,
+        Map<String, Integer> categoryCounts,
+        Map<String, Integer> categoryEvidence,
+        Map<String, Integer> urgentCounts,
+        Map<String, Integer> negativeCategoryCounts,
+        Map<String, Integer> severeCounts
+    ) {
+        static CommentSignal none() {
+            return new CommentSignal(
+                0, 0, 0, Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
+        }
+
+        int countFor(String category) {
+            return category == null ? 0 : categoryCounts.getOrDefault(category, 0);
+        }
+
+        int evidenceFor(String category) {
+            return category == null ? 0 : categoryEvidence.getOrDefault(category, 0);
+        }
+
+        int urgentFor(String category) {
+            return category == null ? 0 : urgentCounts.getOrDefault(category, 0);
+        }
+
+        int negativeCountFor(String category) {
+            return category == null ? 0 : negativeCategoryCounts.getOrDefault(category, 0);
+        }
+
+        int severeFor(String category) {
+            return category == null ? 0 : severeCounts.getOrDefault(category, 0);
+        }
     }
 
     private static final List<CategoryRule> CATEGORY_RULES = List.of(
@@ -163,31 +214,162 @@ public class AnalysisService {
     @Transactional
     public void analyzeAllPosts() {
         List<Post> posts = postRepository.findAll();
-        log.info("开始使用规则 {} 分析 {} 条帖子", ANALYSIS_VERSION, posts.size());
-        posts.forEach(this::analyzePost);
+        List<PostComment> comments = commentRepository == null ? List.of() : commentRepository.findAll();
+        Map<String, List<PostComment>> commentsByPost = comments.stream()
+            .filter(c -> c.getThreadId() != null && !c.getThreadId().isBlank())
+            .collect(Collectors.groupingBy(PostComment::getThreadId));
+
+        log.info("开始使用规则 {} 分析 {} 条帖子和 {} 条评论", ANALYSIS_VERSION, posts.size(), comments.size());
+        for (Post post : posts) {
+            analyzePost(post, commentsByPost.getOrDefault(post.getId(), List.of()));
+        }
         postRepository.saveAll(posts);
+        if (commentRepository != null && !comments.isEmpty()) commentRepository.saveAll(comments);
         log.info("帖子分析完成");
     }
 
     /** 可独立调用，便于任务二扩展和单元测试复用同一份标准化结果。 */
     public void analyzePost(Post post) {
+        analyzePost(post, List.of());
+    }
+
+    /**
+     * 使用关联评论补充分析。空评论列表与 2.0 原帖分析行为一致。
+     */
+    public void analyzePost(Post post, List<PostComment> comments) {
         String title = normalize(post.getTitle());
         String text = normalize((post.getTitle() == null ? "" : post.getTitle()) + " "
             + (post.getContent() == null ? "" : post.getContent()));
 
-        Classification classification = classifySafety(title, text, post.getCategoryName());
+        Classification baseClassification = classifySafety(title, text, post.getCategoryName());
+        CommentSignal commentSignal = analyzeComments(
+            comments == null ? List.of() : comments, post.getCategoryName());
+        // 评论不覆盖原帖分类；只为已有分类加权，并为普通帖子生成待复核提示。
+        Classification classification = baseClassification;
+        String suggestedCategory = suggestCommentCategory(commentSignal);
+        int matchingComments = commentSignal.countFor(classification.category());
+        int commentAdjustment = calculateCommentAdjustment(commentSignal, classification.category());
+
         post.setSafetyCategory(classification.category());
         post.setClassificationConfidence(classification.confidence());
         post.setEmotion(detectEmotion(text));
         post.setLocation(extractLocation(text));
         post.setProblem(extractProblem(classification.category()));
         post.setDemand(extractDemand(text));
-        post.setTopic(extractTopic(classification.category(), text));
+        String topicText = baseClassification.category() == null && classification.category() != null
+            ? text + " " + comments.stream().map(PostComment::getContent)
+                .filter(Objects::nonNull).map(AnalysisService::normalize).collect(Collectors.joining(" "))
+            : text;
+        post.setTopic(extractTopic(classification.category(), topicText));
         post.setAnalysisVersion(ANALYSIS_VERSION);
+        post.setAnalyzedCommentCount(commentSignal.total());
+        post.setNegativeCommentCount(commentSignal.negative());
+        post.setCommentSafetyCount(matchingComments);
+        post.setCommentRiskAdjustment(commentAdjustment);
+        post.setCommentSuggestedCategory(
+            classification.category() == null ? suggestedCategory : null);
+        post.setCommentSuggestionCount(
+            classification.category() == null ? commentSignal.countFor(suggestedCategory) : 0);
+        post.setCommentSignal(buildCommentSignal(
+            commentSignal, classification.category(), suggestedCategory));
+        post.setAnalysisBasis(matchingComments > 0 ? "原帖文本+评论佐证" : "原帖文本");
 
         int score = calculateRiskScore(post, text, classification);
         post.setRiskScore(score);
         post.setRiskLevel(scoreToLevel(score));
+    }
+
+    private CommentSignal analyzeComments(List<PostComment> comments, String sourceCategory) {
+        if (comments.isEmpty()) return CommentSignal.none();
+
+        int negative = 0;
+        int totalLikes = 0;
+        Map<String, Integer> categoryCounts = new LinkedHashMap<>();
+        Map<String, Integer> categoryEvidence = new LinkedHashMap<>();
+        Map<String, Integer> urgentCounts = new LinkedHashMap<>();
+        Map<String, Integer> negativeCategoryCounts = new LinkedHashMap<>();
+        Map<String, Integer> severeCounts = new LinkedHashMap<>();
+
+        for (PostComment comment : comments) {
+            String text = normalize(comment.getContent());
+            String emotion = detectEmotion(text);
+            Classification classification = classifySafety("", text, sourceCategory);
+            comment.setEmotion(emotion);
+            comment.setSafetyCategory(classification.category());
+            comment.setEvidenceScore(classification.evidenceScore());
+            comment.setAnalysisVersion(ANALYSIS_VERSION);
+
+            if ("负面".equals(emotion)) negative++;
+            totalLikes += safe(comment.getLikeCount());
+            if (classification.category() != null) {
+                String category = classification.category();
+                categoryCounts.merge(category, 1, Integer::sum);
+                int authorBonus = safe(comment.getIsAuthor()) == 1 ? 2 : 0;
+                categoryEvidence.merge(category, classification.evidenceScore() + authorBonus, Integer::sum);
+                if (containsAny(text, URGENT_PHRASES)) urgentCounts.merge(category, 1, Integer::sum);
+                if ("负面".equals(emotion)) negativeCategoryCounts.merge(category, 1, Integer::sum);
+                if (containsAny(text, SEVERE_PHRASES)) severeCounts.merge(category, 1, Integer::sum);
+            }
+        }
+
+        return new CommentSignal(
+            comments.size(), negative, totalLikes,
+            Map.copyOf(categoryCounts), Map.copyOf(categoryEvidence),
+            Map.copyOf(urgentCounts), Map.copyOf(negativeCategoryCounts),
+            Map.copyOf(severeCounts));
+    }
+
+    private String suggestCommentCategory(CommentSignal signal) {
+        String category = signal.categoryCounts().keySet().stream()
+            .max(Comparator
+                .comparingInt((String candidate) -> signal.countFor(candidate))
+                .thenComparingInt(signal::evidenceFor))
+            .orElse(null);
+        if (category == null) return null;
+
+        int count = signal.countFor(category);
+        int evidence = signal.evidenceFor(category);
+        boolean contextConfirmed = signal.negativeCountFor(category) >= 2
+            || signal.urgentFor(category) > 0
+            || signal.severeFor(category) > 0;
+        boolean reliableConsensus = contextConfirmed
+            && ((count >= 2 && evidence >= 16) || (count >= 3 && evidence >= 15));
+        return reliableConsensus ? category : null;
+    }
+
+    private int calculateCommentAdjustment(CommentSignal signal, String category) {
+        int corroboration = signal.countFor(category);
+        if (corroboration == 0) return 0;
+
+        int score = corroboration >= 10 ? 6 : corroboration >= 5 ? 4 : corroboration >= 2 ? 2 : 1;
+        if (signal.total() >= 3) {
+            double negativeRatio = (double) signal.negative() / signal.total();
+            if (negativeRatio >= 0.6) score += 4;
+            else if (negativeRatio >= 0.35) score += 3;
+            else if (negativeRatio >= 0.2) score += 1;
+        }
+        if (signal.totalLikes() >= 100) score += 3;
+        else if (signal.totalLikes() >= 30) score += 2;
+        else if (signal.totalLikes() >= 10) score += 1;
+        if (signal.urgentFor(category) >= 2) score += 2;
+        else if (signal.urgentFor(category) == 1) score += 1;
+        return Math.min(12, score);
+    }
+
+    private String buildCommentSignal(
+            CommentSignal signal, String category, String suggestedCategory) {
+        if (signal.total() == 0) return "暂无可关联评论";
+        int matching = signal.countFor(category);
+        double negativeRatio = signal.negative() * 100.0 / signal.total();
+        if (category == null && suggestedCategory != null) {
+            return String.format(
+                "已分析%d条评论；评论提示【%s】%d条，仅供人工复核；负面评论%d条（%.0f%%）",
+                signal.total(), suggestedCategory, signal.countFor(suggestedCategory),
+                signal.negative(), negativeRatio);
+        }
+        return String.format(
+            "已分析%d条评论；同类风险佐证%d条；负面评论%d条（%.0f%%）",
+            signal.total(), matching, signal.negative(), negativeRatio);
     }
 
     private Classification classifySafety(String title, String text, String sourceCategory) {
@@ -197,6 +379,7 @@ public class AnalysisService {
         String scoringText = text.replace("入室抢劫的爱情", "")
             .replace("抢劫般的爱情", "")
             .replace("卫生纸", "纸巾")
+            .replace("骚扰老师", "打扰老师")
             .replace("私发骚扰老师", "私发打扰老师")
             .replace("骚扰老师要求捞", "打扰老师要求捞");
 
@@ -370,13 +553,14 @@ public class AnalysisService {
         else if (views >= 500) score += 5;
         else if (views >= 100) score += 2;
 
+        // 评论只能提供有限增量，原帖分类仍是主评分基础。
+        score += safe(post.getCommentRiskAdjustment());
         return Math.min(score, 100);
     }
 
     private String scoreToLevel(int score) {
-        AnalysisSettingsService.Snapshot settings = runtimeSettings();
-        if (score >= settings.highThreshold()) return "高";
-        if (score >= settings.mediumThreshold()) return "中";
+        if (score >= FIXED_HIGH_RISK_THRESHOLD) return "高";
+        if (score >= FIXED_MEDIUM_RISK_THRESHOLD) return "中";
         return "低";
     }
 
@@ -514,9 +698,14 @@ public class AnalysisService {
         String topic = Objects.toString(top.getTopic(), "综合问题");
         String excerpt = normalizeDisplay(top.getContent());
         if (excerpt.length() > 80) excerpt = excerpt.substring(0, 80) + "...";
-        return String.format("该事件属于【%s】，细分话题为【%s】，本周期聚合 %d 条、持续 %d 天。%s综合风险评分 %d 分，属于%s风险事件。",
+        int analyzedComments = posts.stream().mapToInt(p -> safe(p.getAnalyzedCommentCount())).sum();
+        int negativeComments = posts.stream().mapToInt(p -> safe(p.getNegativeCommentCount())).sum();
+        String commentSummary = analyzedComments == 0 ? "" : String.format(
+            "关联分析 %d 条评论，其中负面评论 %d 条。", analyzedComments, negativeComments);
+        return String.format("该事件属于【%s】，细分话题为【%s】，本周期聚合 %d 条、持续 %d 天。%s%s综合风险评分 %d 分，属于%s风险事件。",
             top.getSafetyCategory(), topic, posts.size(), Math.max(1, days),
-            excerpt.isBlank() ? "" : "典型内容：" + excerpt + "。", score, scoreToLevel(score));
+            excerpt.isBlank() ? "" : "典型内容：" + excerpt + "。", commentSummary,
+            score, scoreToLevel(score));
     }
 
     public List<Map<String, Object>> getRiskReasons(EventEntity event, List<Post> posts) {
@@ -537,6 +726,18 @@ public class AnalysisService {
         int totalViews = posts.stream().mapToInt(p -> safe(p.getViewCount())).sum();
         if (totalViews >= 1000) {
             reasons.add(reason("传播影响", totalViews + "人次浏览", totalViews >= 20000 ? "+8分" : totalViews >= 5000 ? "+6分" : "+3分"));
+        }
+
+        int analyzedComments = posts.stream().mapToInt(p -> safe(p.getAnalyzedCommentCount())).sum();
+        int matchingComments = posts.stream().mapToInt(p -> safe(p.getCommentSafetyCount())).sum();
+        int negativeComments = posts.stream().mapToInt(p -> safe(p.getNegativeCommentCount())).sum();
+        int maxAdjustment = posts.stream().mapToInt(p -> safe(p.getCommentRiskAdjustment())).max().orElse(0);
+        if (analyzedComments > 0 && (matchingComments > 0 || negativeComments > 0)) {
+            reasons.add(reason(
+                "评论交叉佐证",
+                String.format("分析%d条，含%d条同类风险佐证、%d条负面评论",
+                    analyzedComments, matchingComments, negativeComments),
+                maxAdjustment > 0 ? "单帖最高+" + maxAdjustment + "分" : "+0分"));
         }
         return reasons;
     }

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import {
   LayoutDashboard, Radar, Siren, TrendingUp, Bot, FileText, Settings, Database,
-  ShieldCheck, Bell, Search, ChevronLeft, ChevronRight,
+  ShieldCheck, Bell, Search, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen,
   MessageSquare, AlertTriangle, Smile, Meh, Angry, MapPin, Tag, Megaphone,
   ThumbsUp, MessageCircle, Clock, ArrowLeft, ArrowRight, ArrowUp, ArrowDown,
-  Copy, Download, Plus, RefreshCw, Check, X, Sparkles, Send,
+  Copy, Download, Plus, RefreshCw, Check, X, Sparkles, Send, LogOut,
   type LucideIcon,
 } from 'lucide-vue-next'
 
@@ -30,6 +30,8 @@ const map: Record<string, LucideIcon> = {
   'search': Search,
   'chevron-left': ChevronLeft,
   'chevron-right': ChevronRight,
+  'panel-left-close': PanelLeftClose,
+  'panel-left-open': PanelLeftOpen,
   'message-square': MessageSquare,
   'alert-triangle': AlertTriangle,
   'smile': Smile,
@@ -53,6 +55,7 @@ const map: Record<string, LucideIcon> = {
   'x': X,
   'sparkles': Sparkles,
   'send': Send,
+  'logout': LogOut,
   'database': Database,
 }
 </script>

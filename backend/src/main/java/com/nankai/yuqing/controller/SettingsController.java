@@ -67,7 +67,7 @@ public class SettingsController {
     public Map<String, Object> updateSettings(@RequestBody Map<String, Object> body) {
         try {
             Map<String, Object> result = new LinkedHashMap<>(settingsService.update(body));
-            // 阈值和自定义分类规则保存后立即重算，保证刷新各页面时使用的是新设置。
+            // 分类及自定义规则保存后立即重算，保证刷新各页面时使用的是新设置。
             dataImportService.reanalyzeAll();
             result.put("success", true);
             result.put("message", "设置已保存，分析结果已按新规则刷新");

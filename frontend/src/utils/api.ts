@@ -6,10 +6,22 @@ const http = axios.create({
   timeout: 15000,
 })
 
+http.interceptors.request.use((config) => {
+  const token = localStorage.getItem('yuqing_token')
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
 http.interceptors.response.use(
   (res) => res.data,
   (err) => {
     console.error('API请求失败:', err.message)
+    if (err?.response?.status === 401 && !String(err?.config?.url || '').includes('/auth/login')) {
+      localStorage.removeItem('yuqing_token')
+      localStorage.removeItem('yuqing_nickname')
+      window.location.hash = '#/login'
+      return Promise.reject(err)
+    }
     // 根据错误类型向用户展示对应的提示
     if (err?.response?.status >= 500) {
       toast.error('服务器异常，请稍后重试')
@@ -22,6 +34,13 @@ http.interceptors.response.use(
   }
 )
 
+export const authApi = {
+  login: (nickname: string, password: string) =>
+    http.post('/auth/login', { nickname, password }),
+  me: () => http.get('/auth/me'),
+  logout: () => http.post('/auth/logout'),
+}
+
 // Dashboard 总览
 export const dashboardApi = {
   get: () => http.get('/dashboard'),
@@ -31,7 +50,14 @@ export const dashboardApi = {
 export const postApi = {
   list: (params: { keyword?: string; category?: string; emotion?: string; source?: string; page?: number; size?: number }) =>
     http.get('/posts', { params }),
-  detail: (id: string) => http.get(`/posts/${id}`),
+  detail: (id: string, params?: { commentPage?: number; commentSize?: number }) =>
+    http.get(`/posts/${id}`, { params }),
+}
+
+// 评论评判依据（接口不返回评论者个人标识）
+export const commentApi = {
+  listForPost: (postId: string, params?: { page?: number; size?: number }) =>
+    http.get(`/comments/post/${postId}`, { params }),
 }
 
 // 事件管理
@@ -44,13 +70,16 @@ export const eventApi = {
 
 // 趋势分析
 export const trendsApi = {
-  get: () => http.get('/trends'),
+  get: (params?: { days?: number; startDate?: string; endDate?: string }) =>
+    http.get('/trends', { params }),
 }
 
 // 报告中心
 export const reportApi = {
-  list: () => http.get('/reports'),
-  detail: (date: string) => http.get(`/reports/${date}`),
+  list: (type: 'daily' | 'weekly' | 'event' = 'daily') =>
+    http.get('/reports', { params: { type } }),
+  detail: (key: string, type: 'daily' | 'weekly' | 'event' = 'daily') =>
+    http.get(`/reports/${key}`, { params: { type } }),
 }
 
 // 系统设置
@@ -68,6 +97,7 @@ export const assistantApi = {
 export const dataApi = {
   stats: () => http.get('/data/stats'),
   import: (data: any[]) => http.post('/data/import', data, { timeout: 120000 }),
+  importComments: (data: any[]) => http.post('/data/comments/import', data, { timeout: 120000 }),
   reanalyze: () => http.post('/data/reanalyze', undefined, { timeout: 120000 }),
   clear: () => http.delete('/data/all'),
 }

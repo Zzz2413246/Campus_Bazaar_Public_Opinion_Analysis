@@ -92,7 +92,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page large-detail-page">
     <!-- 加载状态 -->
     <LoadingSpinner v-if="loading" />
     <!-- 筛选栏 -->

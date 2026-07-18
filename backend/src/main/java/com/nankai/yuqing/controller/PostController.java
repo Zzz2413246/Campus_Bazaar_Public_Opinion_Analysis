@@ -1,6 +1,8 @@
 package com.nankai.yuqing.controller;
 
 import com.nankai.yuqing.model.Post;
+import com.nankai.yuqing.model.PostComment;
+import com.nankai.yuqing.repository.PostCommentRepository;
 import com.nankai.yuqing.repository.PostRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -17,9 +19,11 @@ import java.util.*;
 public class PostController {
 
     private final PostRepository postRepository;
+    private final PostCommentRepository commentRepository;
 
-    public PostController(PostRepository postRepository) {
+    public PostController(PostRepository postRepository, PostCommentRepository commentRepository) {
         this.postRepository = postRepository;
+        this.commentRepository = commentRepository;
     }
 
     @GetMapping
@@ -50,12 +54,44 @@ public class PostController {
     }
 
     @GetMapping("/{id}")
-    public Map<String, Object> detail(@PathVariable String id) {
+    public Map<String, Object> detail(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "1") int commentPage,
+            @RequestParam(defaultValue = "20") int commentSize) {
         Post post = postRepository.findById(id).orElse(null);
         if (post == null) {
             return Map.of("error", "帖子不存在");
         }
-        return toMap(post);
+        int safePage = Math.max(1, commentPage);
+        int safeSize = Math.max(1, Math.min(commentSize, 100));
+        Page<PostComment> comments = commentRepository.findByThreadIdOrderByPublishTimeAsc(
+            id, PageRequest.of(safePage - 1, safeSize));
+
+        Map<String, Object> result = toMap(post);
+        Map<String, Object> commentResult = new LinkedHashMap<>();
+        commentResult.put("page", safePage);
+        commentResult.put("size", safeSize);
+        commentResult.put("total", comments.getTotalElements());
+        commentResult.put("data", comments.getContent().stream().map(this::toCommentMap).toList());
+        result.put("comments", commentResult);
+        return result;
+    }
+
+    private Map<String, Object> toCommentMap(PostComment comment) {
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", comment.getId());
+        result.put("content", comment.getContent());
+        result.put("publishTime", comment.getPublishTime() == null ? "" : comment.getPublishTime().format(fmt));
+        result.put("likeCount", comment.getLikeCount());
+        result.put("dislikeCount", comment.getDislikeCount());
+        result.put("isReply", comment.getIsReply());
+        result.put("replyDepth", comment.getReplyDepth());
+        result.put("isAuthor", comment.getIsAuthor());
+        result.put("emotion", comment.getEmotion());
+        result.put("safetyCategory", comment.getSafetyCategory());
+        result.put("evidenceScore", comment.getEvidenceScore());
+        return result;
     }
 
     private Map<String, Object> toMap(Post p) {
@@ -91,6 +127,18 @@ public class PostController {
         m.put("topic", p.getTopic());
         m.put("classificationConfidence", p.getClassificationConfidence());
         m.put("analysisVersion", p.getAnalysisVersion());
+        m.put("analyzedCommentCount", p.getAnalyzedCommentCount());
+        m.put("negativeCommentCount", p.getNegativeCommentCount());
+        int analyzedComments = p.getAnalyzedCommentCount() == null ? 0 : p.getAnalyzedCommentCount();
+        int negativeComments = p.getNegativeCommentCount() == null ? 0 : p.getNegativeCommentCount();
+        double negativeRatio = analyzedComments == 0 ? 0 : negativeComments * 100.0 / analyzedComments;
+        m.put("negativeCommentRatio", Math.round(negativeRatio * 100.0) / 100.0);
+        m.put("commentSafetyCount", p.getCommentSafetyCount());
+        m.put("commentRiskAdjustment", p.getCommentRiskAdjustment());
+        m.put("commentSignal", p.getCommentSignal());
+        m.put("commentSuggestedCategory", p.getCommentSuggestedCategory());
+        m.put("commentSuggestionCount", p.getCommentSuggestionCount());
+        m.put("analysisBasis", p.getAnalysisBasis());
         m.put("source", p.getCategoryName());
 
         // 时间描述

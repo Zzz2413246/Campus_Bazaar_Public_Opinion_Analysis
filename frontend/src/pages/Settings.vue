@@ -8,7 +8,6 @@ const loading = ref(false)
 const saving = ref(false)
 const saveMsg = ref('')
 
-const riskThresholds = ref({ high: 70, medium: 40 })
 const categoryRules = ref<Record<string, string[]>>({})
 const builtinCategories = ref<string[]>([])
 
@@ -33,10 +32,6 @@ onMounted(async () => {
   try {
     const res: any = await settingsApi.get()
     const d = unwrap(res) || {}
-    if (d.riskThresholds) {
-      if (d.riskThresholds.high !== undefined) riskThresholds.value.high = d.riskThresholds.high
-      if (d.riskThresholds.medium !== undefined) riskThresholds.value.medium = d.riskThresholds.medium
-    }
     if (Array.isArray(d.categories) && d.categories.length) {
       categories.value = d.categories.map((c: any) => (typeof c === 'string' ? c : (c.name ?? c.category ?? '')))
     }
@@ -68,22 +63,16 @@ onMounted(async () => {
 
 // 保存设置
 async function saveSettings() {
-  if (riskThresholds.value.medium >= riskThresholds.value.high) {
-    toast.error('中风险阈值必须低于高风险阈值')
-    return
-  }
   saving.value = true
   saveMsg.value = ''
   try {
     const res: any = await settingsApi.update({
-      riskThresholds: { high: riskThresholds.value.high, medium: riskThresholds.value.medium },
       categories: categories.value,
       categoryRules: categoryRules.value,
     })
     const d = unwrap(res) || res || {}
-    if (d.riskThresholds) riskThresholds.value = { ...d.riskThresholds }
     if (Array.isArray(d.categories)) categories.value = d.categories.map(String)
-    saveMsg.value = '设置已保存，分析结果已刷新'
+    saveMsg.value = '分类已保存，分析结果已刷新'
     // 额外通过 toast 提示保存成功
     toast.success('设置已保存')
     setTimeout(() => { saveMsg.value = '' }, 3000)
@@ -166,57 +155,25 @@ function isBuiltin(name: string) {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page large-detail-page">
     <!-- 加载状态 -->
     <LoadingSpinner v-if="loading" />
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
-      <!-- 风险评分阈值 -->
-      <div class="card card-pad">
-        <h3 class="section-title mb-4">风险评分阈值</h3>
-        <div class="space-y-6">
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-sm text-slate-700">高风险阈值</span>
-              <span class="badge badge-high">≥ {{ riskThresholds.high }} 分</span>
-            </div>
-            <input type="range" v-model.number="riskThresholds.high" min="50" max="100" class="w-full accent-rose-500" />
+    <!-- 数据源配置 -->
+    <div class="card card-pad">
+      <h3 class="section-title mb-4">数据源配置</h3>
+      <div class="space-y-2">
+        <div
+          v-for="s in sources"
+          :key="s.name"
+          class="flex items-center justify-between p-3 bg-slate-50/70 border border-slate-100"
+        >
+          <div class="min-w-0">
+            <div class="text-sm text-slate-700 font-medium">{{ s.name }}</div>
+            <div class="text-xs text-slate-500 mt-0.5">{{ s.desc }}</div>
           </div>
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-sm text-slate-700">中风险阈值</span>
-              <span class="badge badge-medium">≥ {{ riskThresholds.medium }} 分</span>
-            </div>
-            <input type="range" v-model.number="riskThresholds.medium" min="20" :max="riskThresholds.high - 1" class="w-full accent-amber-500" />
-          </div>
-          <div class="text-sm text-slate-500 bg-slate-50/70 p-4 leading-relaxed border border-slate-100">
-            评分规则：低于 <span class="font-semibold text-emerald-600">{{ riskThresholds.medium }} 分</span> 为低风险，<span class="font-semibold text-amber-600">{{ riskThresholds.medium }}–{{ riskThresholds.high }} 分</span> 为中风险，<span class="font-semibold text-rose-600">{{ riskThresholds.high }} 分</span> 及以上为高风险
-          </div>
-          <div class="flex items-center gap-3 mt-4">
-            <button @click="saveSettings" :disabled="saving" class="btn btn-primary">
-              {{ saving ? '保存中...' : '保存设置' }}
-            </button>
-            <span v-if="saveMsg" class="text-sm text-emerald-600">{{ saveMsg }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 数据源配置 -->
-      <div class="card card-pad">
-        <h3 class="section-title mb-4">数据源配置</h3>
-        <div class="space-y-2">
-          <div
-            v-for="s in sources"
-            :key="s.name"
-            class="flex items-center justify-between p-3 bg-slate-50/70 border border-slate-100"
-          >
-            <div class="min-w-0">
-              <div class="text-sm text-slate-700 font-medium">{{ s.name }}</div>
-              <div class="text-xs text-slate-500 mt-0.5">{{ s.desc }}</div>
-            </div>
-            <span :class="['badge', s.ok ? 'badge-success' : 'badge-warn']">
-              <span :class="['dot', s.ok ? 'dot-low' : 'dot-medium']"></span>{{ s.status }}
-            </span>
-          </div>
+          <span :class="['badge', s.ok ? 'badge-success' : 'badge-warn']">
+            <span :class="['dot', s.ok ? 'dot-low' : 'dot-medium']"></span>{{ s.status }}
+          </span>
         </div>
       </div>
     </div>

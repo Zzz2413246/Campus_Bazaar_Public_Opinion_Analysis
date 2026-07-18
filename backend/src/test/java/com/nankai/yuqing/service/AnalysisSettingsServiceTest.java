@@ -22,12 +22,10 @@ class AnalysisSettingsServiceTest {
         SystemSettingRepository repository = repository(stored);
         AnalysisSettingsService service = new AnalysisSettingsService(repository, new ObjectMapper());
 
-        service.update(settingsPayload(85, 55));
+        service.update(settingsPayload());
 
         AnalysisSettingsService reloaded = new AnalysisSettingsService(repository, new ObjectMapper());
         AnalysisSettingsService.Snapshot snapshot = reloaded.getSnapshot();
-        assertEquals(85, snapshot.highThreshold());
-        assertEquals(55, snapshot.mediumThreshold());
         assertTrue(snapshot.categories().contains("网络与信息安全"));
         assertEquals(List.of("账号泄露", "钓鱼邮件"), snapshot.categoryRules().get("网络与信息安全"));
     }
@@ -35,7 +33,7 @@ class AnalysisSettingsServiceTest {
     @Test
     void customCategoryParticipatesInAnalysis() {
         AnalysisSettingsService settings = new AnalysisSettingsService(repository(new AtomicReference<>()), new ObjectMapper());
-        settings.update(settingsPayload(85, 55));
+        settings.update(settingsPayload());
         AnalysisService analysis = new AnalysisService(null, null, settings);
         Post post = post("校园账号泄露提醒", "收到钓鱼邮件后账号泄露，请大家注意");
 
@@ -47,30 +45,22 @@ class AnalysisSettingsServiceTest {
     }
 
     @Test
-    void configuredRiskThresholdChangesLevel() {
+    void legacyRiskThresholdPayloadIsIgnored() {
         AnalysisSettingsService settings = new AnalysisSettingsService(repository(new AtomicReference<>()), new ObjectMapper());
-        settings.update(settingsPayload(90, 60));
-        AnalysisService analysis = new AnalysisService(null, null, settings);
-        Post post = post("大家注意不要被骗", "有人在东门骗钱，已经报警，请大家注意防诈骗");
-        post.setViewCount(3000);
-        post.setCommentCount(30);
-
-        analysis.analyzePost(post);
-
-        assertTrue(post.getRiskScore() >= 60);
-        assertTrue(post.getRiskScore() < 90);
-        assertEquals("中", post.getRiskLevel());
+        Map<String, Object> payload = settingsPayload();
+        payload.put("riskThresholds", Map.of("high", 50, "medium", 50));
+        Map<String, Object> result = settings.update(payload);
+        assertFalse(result.containsKey("riskThresholds"));
     }
 
     @Test
-    void invalidThresholdsAreRejected() {
+    void settingsResponseDoesNotExposeNumericThresholds() {
         AnalysisSettingsService service = new AnalysisSettingsService(repository(new AtomicReference<>()), new ObjectMapper());
-        assertThrows(IllegalArgumentException.class, () -> service.update(settingsPayload(50, 50)));
+        assertFalse(service.getSettings().containsKey("riskThresholds"));
     }
 
-    private Map<String, Object> settingsPayload(int high, int medium) {
+    private Map<String, Object> settingsPayload() {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("riskThresholds", Map.of("high", high, "medium", medium));
         body.put("categories", List.of(
             "诈骗与财产安全", "治安与人身安全", "消防与用电安全", "校园交通安全",
             "宿舍设施问题", "食堂与餐饮问题", "突发事件", "其他", "网络与信息安全"

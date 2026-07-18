@@ -3,11 +3,22 @@ import { ref, onMounted, computed } from 'vue'
 import BaseChart from '../components/BaseChart.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
-import EmptyState from '@/components/EmptyState.vue'
-import { areaOption, emotionOption, stackAreaOption, barOption, palette } from '../utils/chartTheme'
+import { emotionOption, stackAreaOption, barOption, palette } from '../utils/chartTheme'
 import { trendsApi } from '@/utils/api'
+import { toast } from '@/utils/toast'
 
 const timeRange = ref('7d')
+const today = new Date()
+const thirtyDaysAgo = new Date(today)
+thirtyDaysAgo.setDate(today.getDate() - 29)
+const formatDateInput = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+const customStart = ref(formatDateInput(thirtyDaysAgo))
+const customEnd = ref(formatDateInput(today))
 
 const ranges = [
   { k: '7d', v: '近7天' },
@@ -17,24 +28,9 @@ const ranges = [
 
 const loading = ref(false)
 
-const areaData = ref<any>(null)
 const emotionData = ref<any>(null)
 const stackData = ref<any>(null)
 const sourceData = ref<any>(null)
-
-// 占位默认值（后端数据到达后会被覆盖）；pct 为占比 0~100
-const topItems = ref<any[]>([])
-
-// 帖子总量趋势：API 数据覆盖默认序列
-const areaOpt = computed(() => {
-  const base = areaOption() as any
-  const ad = areaData.value
-  if (ad) {
-    if (Array.isArray(ad.data)) (base.series as any[])[0].data = ad.data
-    if (Array.isArray(ad.labels)) base.xAxis.data = ad.labels
-  }
-  return base
-})
 
 // 情绪变化趋势：API 数据覆盖正/中/负
 const emotionOpt = computed(() => {
@@ -98,7 +94,6 @@ const barOpt = computed(() => {
 })
 
 const charts = computed(() => [
-  { title: '帖子总量趋势', sub: '面积图 · 日期 / 帖子数量', opt: areaOpt.value },
   { title: '情绪变化趋势', sub: '折线图 · 正面 / 中性 / 负面', opt: emotionOpt.value },
   { title: '各类议题热度变化', sub: '堆叠面积图 · 诈骗 / 治安 / 消防 / 交通 / 设施', opt: stackOpt.value },
   { title: '各类帖子类型分布', sub: '柱状图 · 按安全类别统计', opt: barOpt.value },
@@ -110,28 +105,22 @@ function unwrap(res: any) {
 }
 
 // 加载趋势数据，供 onMounted 与手动刷新调用
+function currentRangeParams() {
+  if (timeRange.value === '30d') return { days: 30 }
+  if (timeRange.value === 'custom') {
+    return { startDate: customStart.value, endDate: customEnd.value }
+  }
+  return { days: 7 }
+}
+
 async function loadTrends() {
   loading.value = true
   try {
-    const res: any = await trendsApi.get()
+    const res: any = await trendsApi.get(currentRangeParams())
     const d = unwrap(res) || {}
-    if (d.areaData) areaData.value = d.areaData
     if (d.emotionData) emotionData.value = d.emotionData
     if (d.stackData) stackData.value = d.stackData
     if (d.sourceData) sourceData.value = d.sourceData
-    if (Array.isArray(d.topItems) && d.topItems.length) {
-      topItems.value = d.topItems.map((t: any) => {
-        // pct = 该类别占所有安全帖子的真实占比（0~100）
-        const pct = t.pct ?? 0
-        return {
-          name: t.name ?? t.topic ?? '',
-          pct,
-          count: t.count ?? 0,
-          w: t.w ?? Math.max(10, Math.min(95, pct)),
-          c: t.c ?? (pct > 40 ? 'from-rose-500 to-rose-400' : pct > 20 ? 'from-amber-500 to-amber-400' : 'from-brand-500 to-brand-400'),
-        }
-      })
-    }
   } catch (err) {
     console.warn('趋势数据加载失败，使用默认数据', err)
   } finally {
@@ -139,23 +128,52 @@ async function loadTrends() {
   }
 }
 
+function selectRange(range: string) {
+  timeRange.value = range
+  if (range !== 'custom') {
+    loadTrends()
+  }
+}
+
+function applyCustomRange() {
+  if (!customStart.value || !customEnd.value) {
+    toast.error('请选择完整的起止日期')
+    return
+  }
+  if (customStart.value > customEnd.value) {
+    toast.error('开始日期不能晚于结束日期')
+    return
+  }
+  loadTrends()
+}
+
 onMounted(loadTrends)
 </script>
 
 <template>
-  <div class="page">
+  <section class="space-y-5" aria-labelledby="trend-analysis-title">
     <!-- 加载状态 -->
     <LoadingSpinner v-if="loading" />
     <!-- 时间切换 -->
-    <div class="flex items-center gap-3">
-      <span class="text-sm text-slate-600">时间范围</span>
+    <div class="trend-toolbar flex flex-wrap items-center gap-3 border-t border-slate-200 pt-6">
+      <div class="mr-auto">
+        <h2 id="trend-analysis-title" class="text-xl font-semibold text-slate-900">趋势研判</h2>
+        <p class="text-sm text-slate-600 mt-1">总览趋势的补充分析，聚焦情绪与议题变化</p>
+      </div>
+      <span class="text-sm font-medium text-slate-700">时间范围</span>
       <div class="seg">
         <span
           v-for="r in ranges"
           :key="r.k"
-          @click="timeRange = r.k"
+          @click="selectRange(r.k)"
           :class="['seg-item', timeRange === r.k ? 'seg-item-active' : '']"
         >{{ r.v }}</span>
+      </div>
+      <div v-if="timeRange === 'custom'" class="flex flex-wrap items-center gap-2">
+        <input v-model="customStart" type="date" class="input" :max="customEnd" aria-label="开始日期" />
+        <span class="text-slate-500">至</span>
+        <input v-model="customEnd" type="date" class="input" :min="customStart" aria-label="结束日期" />
+        <button class="btn btn-primary" @click="applyCustomRange">应用</button>
       </div>
       <!-- 刷新按钮 -->
       <RefreshButton :on-refresh="loadTrends" class="ml-auto" />
@@ -176,31 +194,19 @@ onMounted(loadTrends)
       </div>
     </div>
 
-    <!-- 议题分布 TOP5 -->
-    <div class="card card-pad">
-      <div class="flex items-center justify-between mb-5">
-        <div>
-          <h3 class="section-title">安全议题分布 TOP5</h3>
-          <p class="section-sub mt-0.5">按讨论量占比排序 · 基于全部安全相关帖子</p>
-        </div>
-        <span class="badge badge-info">📊 议题分布</span>
-      </div>
-      <div v-if="topItems.length" class="space-y-4">
-        <div v-for="(item, i) in topItems" :key="i" class="flex items-center gap-4">
-          <span class="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
-            :class="i === 0 ? 'bg-rose-100 text-rose-600' : i < 3 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'">
-            {{ i + 1 }}
-          </span>
-          <span class="w-36 text-sm text-slate-700 font-medium flex-shrink-0 truncate">{{ item.name }}</span>
-          <div class="flex-1 h-2.5 bg-slate-100 overflow-hidden">
-            <div :class="['h-full bg-gradient-to-r', item.c]" :style="{ width: item.w + '%' }"></div>
-          </div>
-          <span class="text-xs text-slate-400 w-12 text-right">{{ item.count ?? '-' }} 条</span>
-          <span :class="['text-sm font-semibold w-14 text-right', item.pct > 40 ? 'text-rose-500' : item.pct > 20 ? 'text-amber-500' : 'text-slate-500']">{{ item.pct }}%</span>
-        </div>
-      </div>
-      <!-- 无数据时显示空状态 -->
-      <EmptyState v-else text="暂无安全议题数据" />
-    </div>
-  </div>
+  </section>
 </template>
+
+<style scoped>
+.trend-toolbar {
+  padding-left: 52px;
+  padding-right: 52px;
+}
+
+@media (max-width: 767px) {
+  .trend-toolbar {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+</style>

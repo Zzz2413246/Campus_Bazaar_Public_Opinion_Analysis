@@ -1,8 +1,11 @@
 package com.nankai.yuqing.service;
 
 import com.nankai.yuqing.model.Post;
+import com.nankai.yuqing.model.PostComment;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -117,6 +120,64 @@ class AnalysisServiceTest {
         assertNull(post.getSafetyCategory());
     }
 
+    @Test
+    void singleTangentialCommentCannotChangeOriginalClassification() {
+        Post post = post("普通求助", "大家帮忙看看这个问题怎么解决", "打听求助");
+
+        service.analyzePost(post, List.of(comment("有人说像诈骗，大家小心")));
+
+        assertNull(post.getSafetyCategory());
+        assertEquals(0, post.getRiskScore());
+        assertEquals("原帖文本", post.getAnalysisBasis());
+        assertEquals(1, post.getAnalyzedCommentCount());
+    }
+
+    @Test
+    void consistentCommentEvidenceCreatesReviewSuggestionWithoutOverwritingCategory() {
+        Post post = post("交易求助", "想问问大家这种情况怎么办", "打听求助");
+
+        service.analyzePost(post, List.of(
+            comment("我也被骗了，对方转账后失联"),
+            comment("确认是诈骗，收钱不发货，太坑人了")
+        ));
+
+        assertNull(post.getSafetyCategory());
+        assertEquals("诈骗与财产安全", post.getCommentSuggestedCategory());
+        assertEquals(2, post.getCommentSuggestionCount());
+        assertEquals("原帖文本", post.getAnalysisBasis());
+        assertEquals(0, post.getCommentRiskAdjustment());
+    }
+
+    @Test
+    void repeatedTeacherCommunicationAccusationsAreNotPersonalSafetyConsensus() {
+        Post post = post("课程成绩讨论", "想请教老师评分标准", "打听求助");
+
+        service.analyzePost(post, List.of(
+            comment("反复发消息是在骚扰老师"),
+            comment("不要三番五次骚扰老师要求回复"),
+            comment("这种私发消息打扰老师的方式不合适")
+        ));
+
+        assertNull(post.getSafetyCategory());
+        assertEquals(0, post.getCommentRiskAdjustment());
+    }
+
+    @Test
+    void matchingNegativeCommentsIncreaseRiskWithinTwelvePointLimit() {
+        Post baseline = post("二手交易被骗", "转账后失联，对方收钱不发货", "打听求助");
+        Post assisted = post("二手交易被骗", "转账后失联，对方收钱不发货", "打听求助");
+        service.analyzePost(baseline);
+        service.analyzePost(assisted, List.of(
+            comment("我也被骗了，真的非常生气"),
+            comment("确认是诈骗，太坑人了"),
+            comment("大家小心，对方收钱不发货")
+        ));
+
+        assertTrue(assisted.getRiskScore() > baseline.getRiskScore());
+        assertTrue(assisted.getRiskScore() - baseline.getRiskScore() <= 12);
+        assertEquals("原帖文本+评论佐证", assisted.getAnalysisBasis());
+    }
+
     private Post post(String title, String content, String source) {
         Post post = new Post();
         post.setId(title);
@@ -127,5 +188,16 @@ class AnalysisServiceTest {
         post.setLikeCount(0);
         post.setViewCount(10);
         return post;
+    }
+
+    private PostComment comment(String content) {
+        PostComment comment = new PostComment();
+        comment.setId(content);
+        comment.setThreadId("test-thread");
+        comment.setContent(content);
+        comment.setLikeCount(0);
+        comment.setDislikeCount(0);
+        comment.setIsAuthor(0);
+        return comment;
     }
 }

@@ -2,10 +2,10 @@ package com.nankai.yuqing.controller;
 
 import com.nankai.yuqing.model.Post;
 import com.nankai.yuqing.repository.PostRepository;
-import com.nankai.yuqing.service.AnalysisService;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
@@ -20,59 +20,97 @@ import java.util.*;
 public class TrendsController {
 
     private final PostRepository postRepository;
-    private final AnalysisService analysisService;
 
-    public TrendsController(PostRepository postRepository, AnalysisService analysisService) {
+    public TrendsController(PostRepository postRepository) {
         this.postRepository = postRepository;
-        this.analysisService = analysisService;
     }
 
     @GetMapping
-    public Map<String, Object> trends() {
+    public Map<String, Object> trends(
+        @RequestParam(defaultValue = "7") int days,
+        @RequestParam(required = false) LocalDate startDate,
+        @RequestParam(required = false) LocalDate endDate
+    ) {
         List<Post> posts = postRepository.findAll();
         Map<String, Object> result = new LinkedHashMap<>();
 
-        // 面积图数据（近7天，与其他图表一致）
-        result.put("areaData", buildAreaData(posts));
+        LocalDate rangeEnd = endDate != null ? endDate : LocalDate.now();
+        LocalDate rangeStart;
+        if (startDate != null && endDate != null) {
+            rangeStart = startDate;
+        } else {
+            int safeDays = Math.max(1, Math.min(days, 366));
+            rangeStart = rangeEnd.minusDays(safeDays - 1L);
+        }
+        if (rangeStart.isAfter(rangeEnd)) {
+            LocalDate temp = rangeStart;
+            rangeStart = rangeEnd;
+            rangeEnd = temp;
+        }
+        // 最多返回一年数据，避免过长时间轴影响图表可读性。
+        if (ChronoUnit.DAYS.between(rangeStart, rangeEnd) > 365) {
+            rangeStart = rangeEnd.minusDays(365);
+        }
 
-        // 情绪变化（近7天）
-        result.put("emotionData", buildEmotionData(posts));
+        final LocalDate finalStart = rangeStart;
+        final LocalDate finalEnd = rangeEnd;
+        List<Post> rangePosts = posts.stream()
+            .filter(p -> p.getPublishTime() != null)
+            .filter(p -> {
+                LocalDate date = p.getPublishTime().toLocalDate();
+                return !date.isBefore(finalStart) && !date.isAfter(finalEnd);
+            })
+            .toList();
+        List<LocalDate> dates = buildDates(rangeStart, rangeEnd);
 
-        // 堆叠面积图（近7天各类别）
-        result.put("stackData", buildStackData(posts));
+        result.put("areaData", buildAreaData(rangePosts, dates));
+        result.put("emotionData", buildEmotionData(rangePosts, dates));
+        result.put("stackData", buildStackData(rangePosts, dates));
+        result.put("sourceData", buildSourceData(rangePosts));
+        result.put("topItems", buildTopItems(rangePosts));
 
-        // 各来源渠道
-        result.put("sourceData", buildSourceData(posts));
-
-        // 安全议题分布 TOP5（按讨论量排序）
-        result.put("topItems", buildTopItems(posts));
+        Map<String, Object> range = new LinkedHashMap<>();
+        range.put("startDate", rangeStart);
+        range.put("endDate", rangeEnd);
+        range.put("days", dates.size());
+        result.put("range", range);
 
         return result;
     }
 
-    private Map<String, Object> buildAreaData(List<Post> posts) {
-        List<String> days = analysisService.getLastNDays(7);
+    private List<LocalDate> buildDates(LocalDate start, LocalDate end) {
+        List<LocalDate> dates = new ArrayList<>();
+        for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+            dates.add(date);
+        }
+        return dates;
+    }
+
+    private List<String> buildLabels(List<LocalDate> dates) {
+        return dates.stream()
+            .map(date -> date.getMonthValue() + "/" + date.getDayOfMonth())
+            .toList();
+    }
+
+    private Map<String, Object> buildAreaData(List<Post> posts, List<LocalDate> dates) {
         List<Integer> values = new ArrayList<>();
-        for (int i = 0; i < days.size(); i++) {
-            LocalDate date = LocalDate.now().minusDays(days.size() - 1 - i);
+        for (LocalDate date : dates) {
             final LocalDate fd = date;
             int count = (int) posts.stream().filter(p -> p.getPublishTime() != null && p.getPublishTime().toLocalDate().equals(fd)).count();
             values.add(count);
         }
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("labels", days);   // 对齐前端 ad.labels
+        m.put("labels", buildLabels(dates));   // 对齐前端 ad.labels
         m.put("data", values);   // 对齐前端 ad.data
         return m;
     }
 
-    private Map<String, Object> buildEmotionData(List<Post> posts) {
-        List<String> days = analysisService.getLastNDays(7);
+    private Map<String, Object> buildEmotionData(List<Post> posts, List<LocalDate> dates) {
         List<Integer> positive = new ArrayList<>();
         List<Integer> neutral = new ArrayList<>();
         List<Integer> negative = new ArrayList<>();
 
-        for (int i = 0; i < days.size(); i++) {
-            LocalDate date = LocalDate.now().minusDays(days.size() - 1 - i);
+        for (LocalDate date : dates) {
             final LocalDate fd = date;
             List<Post> dayPosts = posts.stream().filter(p -> p.getPublishTime() != null && p.getPublishTime().toLocalDate().equals(fd)).toList();
             int total = dayPosts.size();
@@ -92,15 +130,14 @@ public class TrendsController {
         }
 
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("labels", days);   // 对齐前端 ed.labels
+        m.put("labels", buildLabels(dates));   // 对齐前端 ed.labels
         m.put("positive", positive);
         m.put("neutral", neutral);
         m.put("negative", negative);
         return m;
     }
 
-    private Map<String, Object> buildStackData(List<Post> posts) {
-        List<String> days = analysisService.getLastNDays(7);
+    private Map<String, Object> buildStackData(List<Post> posts, List<LocalDate> dates) {
         // 类别名与 AnalysisService.SAFETY_KEYWORDS 完全一致
         String[] cats = {"诈骗与财产安全", "消防与用电安全", "宿舍设施问题", "食堂与餐饮问题", "校园交通安全"};
 
@@ -108,8 +145,7 @@ public class TrendsController {
         Map<String, List<Integer>> seriesMap = new LinkedHashMap<>();
         for (String cat : cats) {
             List<Integer> series = new ArrayList<>();
-            for (int i = 0; i < days.size(); i++) {
-                LocalDate date = LocalDate.now().minusDays(days.size() - 1 - i);
+            for (LocalDate date : dates) {
                 final LocalDate fd = date;
                 int count = (int) posts.stream()
                     .filter(p -> cat.equals(p.getSafetyCategory()) && p.getPublishTime() != null && p.getPublishTime().toLocalDate().equals(fd))
@@ -129,7 +165,7 @@ public class TrendsController {
         }
 
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("labels", days);                    // 对齐前端 sd.labels
+        m.put("labels", buildLabels(dates));      // 对齐前端 sd.labels
         m.put("categories", Arrays.asList(cats));
         m.put("series", seriesList);              // 对齐前端 sd.series
         return m;

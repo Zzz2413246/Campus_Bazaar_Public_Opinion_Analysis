@@ -94,6 +94,35 @@ public class Post {
     @Column(name = "topic")
     private String topic;
 
+    /** 实际关联并参与分析的评论数，与抓取时帖子自带的 commentCount 分开保存。 */
+    @Column(name = "analyzed_comment_count")
+    private Integer analyzedCommentCount = 0;
+
+    @Column(name = "negative_comment_count")
+    private Integer negativeCommentCount = 0;
+
+    /** 与最终安全分类一致的评论佐证数量。 */
+    @Column(name = "comment_safety_count")
+    private Integer commentSafetyCount = 0;
+
+    /** 评论信号对单帖风险分的增量，限制在 0-12 分。 */
+    @Column(name = "comment_risk_adjustment")
+    private Integer commentRiskAdjustment = 0;
+
+    @Column(name = "comment_signal", length = 1000)
+    private String commentSignal;
+
+    /** 评论共识提示的待复核类别；不直接覆盖原帖分类，也不参与自动评分。 */
+    @Column(name = "comment_suggested_category")
+    private String commentSuggestedCategory;
+
+    @Column(name = "comment_suggestion_count")
+    private Integer commentSuggestionCount = 0;
+
+    /** 原帖文本 / 原帖文本+评论佐证 / 评论共识补充。 */
+    @Column(name = "analysis_basis")
+    private String analysisBasis;
+
     // 构造函数
     public Post() {}
 
@@ -149,4 +178,20 @@ public class Post {
     public void setClassificationConfidence(Integer classificationConfidence) { this.classificationConfidence = classificationConfidence; }
     public String getTopic() { return topic; }
     public void setTopic(String topic) { this.topic = topic; }
+    public Integer getAnalyzedCommentCount() { return analyzedCommentCount; }
+    public void setAnalyzedCommentCount(Integer analyzedCommentCount) { this.analyzedCommentCount = analyzedCommentCount; }
+    public Integer getNegativeCommentCount() { return negativeCommentCount; }
+    public void setNegativeCommentCount(Integer negativeCommentCount) { this.negativeCommentCount = negativeCommentCount; }
+    public Integer getCommentSafetyCount() { return commentSafetyCount; }
+    public void setCommentSafetyCount(Integer commentSafetyCount) { this.commentSafetyCount = commentSafetyCount; }
+    public Integer getCommentRiskAdjustment() { return commentRiskAdjustment; }
+    public void setCommentRiskAdjustment(Integer commentRiskAdjustment) { this.commentRiskAdjustment = commentRiskAdjustment; }
+    public String getCommentSignal() { return commentSignal; }
+    public void setCommentSignal(String commentSignal) { this.commentSignal = commentSignal; }
+    public String getCommentSuggestedCategory() { return commentSuggestedCategory; }
+    public void setCommentSuggestedCategory(String commentSuggestedCategory) { this.commentSuggestedCategory = commentSuggestedCategory; }
+    public Integer getCommentSuggestionCount() { return commentSuggestionCount; }
+    public void setCommentSuggestionCount(Integer commentSuggestionCount) { this.commentSuggestionCount = commentSuggestionCount; }
+    public String getAnalysisBasis() { return analysisBasis; }
+    public void setAnalysisBasis(String analysisBasis) { this.analysisBasis = analysisBasis; }
 }

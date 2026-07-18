@@ -27,11 +27,16 @@ public class DataImportService {
     private final PostRepository postRepository;
     private final EventRepository eventRepository;
     private final AnalysisService analysisService;
+    private final CommentImportService commentImportService;
 
-    public DataImportService(PostRepository postRepository, EventRepository eventRepository, AnalysisService analysisService) {
+    public DataImportService(PostRepository postRepository,
+                             EventRepository eventRepository,
+                             AnalysisService analysisService,
+                             CommentImportService commentImportService) {
         this.postRepository = postRepository;
         this.eventRepository = eventRepository;
         this.analysisService = analysisService;
+        this.commentImportService = commentImportService;
     }
 
     /**
@@ -116,6 +121,14 @@ public class DataImportService {
             post.setTopic(null);
             post.setClassificationConfidence(0);
             post.setAnalysisVersion(null);
+            post.setAnalyzedCommentCount(0);
+            post.setNegativeCommentCount(0);
+            post.setCommentSafetyCount(0);
+            post.setCommentRiskAdjustment(0);
+            post.setCommentSignal(null);
+            post.setCommentSuggestedCategory(null);
+            post.setCommentSuggestionCount(0);
+            post.setAnalysisBasis(null);
         }
         postRepository.saveAll(posts);
 
@@ -133,6 +146,7 @@ public class DataImportService {
     public void clearAll() {
         log.warn("开始清空所有数据");
         eventRepository.deleteAll();
+        commentImportService.clearAll();
         postRepository.deleteAll();
         log.warn("所有数据已清空");
     }
@@ -219,6 +233,7 @@ public class DataImportService {
         stats.put("highConfidenceRate", Math.round(highConfidenceRate * 100.0) / 100.0);
         stats.put("missingContent", missingContent);
         stats.put("analysisVersion", AnalysisService.ANALYSIS_VERSION);
+        stats.put("commentStats", commentImportService.getStats());
 
         return stats;
     }

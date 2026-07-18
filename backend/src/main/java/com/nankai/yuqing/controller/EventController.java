@@ -5,7 +5,6 @@ import com.nankai.yuqing.model.Post;
 import com.nankai.yuqing.repository.EventRepository;
 import com.nankai.yuqing.repository.PostRepository;
 import com.nankai.yuqing.service.AnalysisService;
-import com.nankai.yuqing.service.AnalysisSettingsService;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.format.DateTimeFormatter;
@@ -21,16 +20,13 @@ public class EventController {
     private final EventRepository eventRepository;
     private final PostRepository postRepository;
     private final AnalysisService analysisService;
-    private final AnalysisSettingsService settingsService;
 
     public EventController(EventRepository eventRepository,
                            PostRepository postRepository,
-                           AnalysisService analysisService,
-                           AnalysisSettingsService settingsService) {
+                           AnalysisService analysisService) {
         this.eventRepository = eventRepository;
         this.postRepository = postRepository;
         this.analysisService = analysisService;
-        this.settingsService = settingsService;
     }
 
     /**
@@ -84,6 +80,8 @@ public class EventController {
         stats.put("affectedRange", event.getAffectedRange());
         stats.put("urgency", event.getUrgency());
         stats.put("emotion", event.getEmotionSummary());
+        stats.put("analyzedComments", relatedPosts.stream()
+            .mapToInt(p -> p.getAnalyzedCommentCount() == null ? 0 : p.getAnalyzedCommentCount()).sum());
         result.put("stats", stats);
 
         // 风险判断依据
@@ -98,6 +96,10 @@ public class EventController {
             pm.put("source", p.getCategoryName());
             pm.put("emotion", emotionEmoji(p.getEmotion()));
             pm.put("comments", p.getCommentCount());
+            pm.put("analyzedComments", p.getAnalyzedCommentCount());
+            pm.put("commentRiskAdjustment", p.getCommentRiskAdjustment());
+            pm.put("commentSignal", p.getCommentSignal());
+            pm.put("analysisBasis", p.getAnalysisBasis());
             pm.put("content", p.getTitle() + " - " + (p.getContent() != null && p.getContent().length() > 60 ? p.getContent().substring(0, 60) + "..." : p.getContent()));
             posts.add(pm);
         }
@@ -152,12 +154,6 @@ public class EventController {
         if (status != null) event.setStatus(status);
         if (risk != null) {
             event.setRisk(risk);
-            AnalysisSettingsService.Snapshot settings = settingsService.getSnapshot();
-            event.setRiskScore("高".equals(risk)
-                ? settings.highThreshold()
-                : "中".equals(risk)
-                    ? settings.mediumThreshold()
-                    : Math.max(0, settings.mediumThreshold() - 20));
         }
         event.setUpdatedAt(java.time.LocalDateTime.now());
         eventRepository.save(event);

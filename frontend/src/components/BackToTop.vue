@@ -20,7 +20,7 @@ onUnmounted(() => window.removeEventListener('scroll', handleScroll))
     <button
       v-if="visible"
       @click="scrollToTop"
-      class="fixed bottom-6 right-6 z-50 w-11 h-11 flex items-center justify-center bg-white border border-slate-200 shadow-lg hover:bg-slate-50 hover:border-brand-300 transition-colors"
+      class="fixed bottom-7 right-24 z-40 w-11 h-11 flex items-center justify-center bg-white border border-slate-200 shadow-lg hover:bg-slate-50 hover:border-brand-300 transition-colors"
       title="回到顶部"
     >
       <span class="text-lg text-slate-600">↑</span>

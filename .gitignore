@@ -1,5 +1,6 @@
 # 敏感数据 / 原始抓取数据（含用户昵称、头像和帖子正文）
 posts*.json
+comments*.json
 backend/data/
 *.mv.db
 *.trace.db

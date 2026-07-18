@@ -57,7 +57,7 @@
   --color-border: #e2e8f0;
   --color-text: #1e293b;
   --color-text-secondary: #64748b;
-  --color-text-muted: #94a3b8;
+  --color-text-muted: #64748b;
 
   /* 间距 */
   --spacing-xs: 4px;
@@ -126,7 +126,9 @@ body {
 @layer components {
   /* 页面容器 */
   .page {
-    @apply space-y-6;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
     padding-left: 32px;
     padding-right: 32px;
   }
@@ -148,7 +150,7 @@ body {
     @apply text-lg font-semibold text-slate-800;
   }
   .section-sub {
-    @apply text-sm text-slate-400;
+    @apply text-sm text-slate-600;
   }
 
   /* 统计卡 · 直角矩形，不裁切内容 */
@@ -218,6 +220,11 @@ body {
   .select {
     @apply px-3 py-2 border border-slate-200 text-sm bg-white text-slate-700
       focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 transition-colors;
+    min-height: 42px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    font-size: 15px;
+    line-height: 20px;
   }
   .select {
     @apply pr-8 cursor-pointer;
@@ -368,4 +375,59 @@ a:hover {
 ::selection {
   background: var(--color-brand-100);
   color: var(--color-brand-700);
+}
+
+/* 可读性增强：浅色背景上的辅助文字保持足够对比度 */
+.text-slate-400 {
+  color: #64748b !important;
+}
+.text-slate-500 {
+  color: #475569 !important;
+}
+
+/* 深色侧栏使用更明亮的辅助文字，避免被全局规则压暗 */
+aside .text-slate-400 {
+  color: #cbd5e1 !important;
+}
+aside .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+/* 后四个管理页面的详细内容使用更舒适的阅读字号 */
+.large-detail-page {
+  font-size: 16px;
+}
+
+.large-detail-page .text-xs {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.large-detail-page .text-sm {
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.large-detail-page .section-title {
+  font-size: 18px;
+  line-height: 26px;
+}
+
+.large-detail-page .section-sub {
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.large-detail-page .badge {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.large-detail-page .table-base thead th {
+  font-size: 14px;
+}
+
+.large-detail-page .table-base tbody td {
+  font-size: 15px;
+  line-height: 22px;
 }

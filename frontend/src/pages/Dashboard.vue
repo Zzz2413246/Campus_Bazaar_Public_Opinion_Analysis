@@ -4,6 +4,7 @@ import BaseChart from '../components/BaseChart.vue'
 import AppIcon from '../components/AppIcon.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
+import TrendAnalysis from '@/pages/Trends.vue'
 import { toast } from '@/utils/toast'
 import { trendLineOption, donutOption, sparklineOption, palette } from '../utils/chartTheme'
 import { useCountUp } from '../utils/useCountUp'
@@ -270,5 +271,8 @@ onMounted(() => {
         </table>
       </div>
     </div>
+
+    <!-- 与总览去重后的趋势研判 -->
+    <TrendAnalysis />
   </div>
 </template>
