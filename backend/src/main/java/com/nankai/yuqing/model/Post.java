@@ -70,6 +70,10 @@ public class Post {
     @Column(name = "risk_level")
     private String riskLevel = "低";
 
+    /** 外部AI直接提供的低/中/高标签；存在时优先于本地规则推断结果。 */
+    @Column(name = "provided_risk_level")
+    private String providedRiskLevel;
+
     @Column(name = "location")
     private String location;
 
@@ -123,6 +127,31 @@ public class Post {
     @Column(name = "analysis_basis")
     private String analysisBasis;
 
+    /** 人工复核状态：待复核 / 已确认 / 已修正 / 无关内容。 */
+    @Column(name = "review_status")
+    private String reviewStatus = "待复核";
+
+    /** 人工最终分类；为空时使用原始 AI 分类。 */
+    @Column(name = "reviewed_category")
+    private String reviewedCategory;
+
+    /** 人工最终风险等级；为空时使用原始 AI 风险等级。 */
+    @Column(name = "reviewed_risk_level")
+    private String reviewedRiskLevel;
+
+    /** 人工最终情绪；为空时使用原始 AI 情绪。 */
+    @Column(name = "reviewed_emotion")
+    private String reviewedEmotion;
+
+    @Column(name = "review_note", length = 2000)
+    private String reviewNote;
+
+    @Column(name = "reviewer")
+    private String reviewer;
+
+    @Column(name = "reviewed_at")
+    private LocalDateTime reviewedAt;
+
     // 构造函数
     public Post() {}
 
@@ -164,6 +193,8 @@ public class Post {
     public void setRiskScore(Integer riskScore) { this.riskScore = riskScore; }
     public String getRiskLevel() { return riskLevel; }
     public void setRiskLevel(String riskLevel) { this.riskLevel = riskLevel; }
+    public String getProvidedRiskLevel() { return providedRiskLevel; }
+    public void setProvidedRiskLevel(String providedRiskLevel) { this.providedRiskLevel = providedRiskLevel; }
     public String getLocation() { return location; }
     public void setLocation(String location) { this.location = location; }
     public String getProblem() { return problem; }
@@ -194,4 +225,18 @@ public class Post {
     public void setCommentSuggestionCount(Integer commentSuggestionCount) { this.commentSuggestionCount = commentSuggestionCount; }
     public String getAnalysisBasis() { return analysisBasis; }
     public void setAnalysisBasis(String analysisBasis) { this.analysisBasis = analysisBasis; }
+    public String getReviewStatus() { return reviewStatus; }
+    public void setReviewStatus(String reviewStatus) { this.reviewStatus = reviewStatus; }
+    public String getReviewedCategory() { return reviewedCategory; }
+    public void setReviewedCategory(String reviewedCategory) { this.reviewedCategory = reviewedCategory; }
+    public String getReviewedRiskLevel() { return reviewedRiskLevel; }
+    public void setReviewedRiskLevel(String reviewedRiskLevel) { this.reviewedRiskLevel = reviewedRiskLevel; }
+    public String getReviewedEmotion() { return reviewedEmotion; }
+    public void setReviewedEmotion(String reviewedEmotion) { this.reviewedEmotion = reviewedEmotion; }
+    public String getReviewNote() { return reviewNote; }
+    public void setReviewNote(String reviewNote) { this.reviewNote = reviewNote; }
+    public String getReviewer() { return reviewer; }
+    public void setReviewer(String reviewer) { this.reviewer = reviewer; }
+    public LocalDateTime getReviewedAt() { return reviewedAt; }
+    public void setReviewedAt(LocalDateTime reviewedAt) { this.reviewedAt = reviewedAt; }
 }

@@ -44,6 +44,15 @@ public class EventEntity {
     @Column(name = "summary")
     private String summary;
 
+    @Column(name = "assignee")
+    private String assignee;
+
+    @Column(name = "due_at")
+    private LocalDateTime dueAt;
+
+    @Column(name = "resolution", length = 2000)
+    private String resolution;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -74,6 +83,12 @@ public class EventEntity {
     public void setEmotionSummary(String emotionSummary) { this.emotionSummary = emotionSummary; }
     public String getSummary() { return summary; }
     public void setSummary(String summary) { this.summary = summary; }
+    public String getAssignee() { return assignee; }
+    public void setAssignee(String assignee) { this.assignee = assignee; }
+    public LocalDateTime getDueAt() { return dueAt; }
+    public void setDueAt(LocalDateTime dueAt) { this.dueAt = dueAt; }
+    public String getResolution() { return resolution; }
+    public void setResolution(String resolution) { this.resolution = resolution; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

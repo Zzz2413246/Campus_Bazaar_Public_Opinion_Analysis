@@ -191,8 +191,8 @@ onMounted(loadStats)
             <AppIcon name="trending-up" :size="20" />
           </span>
           <div>
-            <div class="text-2xl font-semibold text-slate-800">{{ stats.avgRiskScore || 0 }}</div>
-            <div class="text-xs text-slate-500">平均风险评分</div>
+            <div class="text-2xl font-semibold text-slate-800">{{ stats.mediumHighRiskPosts || 0 }}</div>
+            <div class="text-xs text-slate-500">中高风险标签</div>
           </div>
         </div>
       </div>

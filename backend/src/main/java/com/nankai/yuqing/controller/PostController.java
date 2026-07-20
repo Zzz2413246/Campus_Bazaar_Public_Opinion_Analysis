@@ -4,11 +4,13 @@ import com.nankai.yuqing.model.Post;
 import com.nankai.yuqing.model.PostComment;
 import com.nankai.yuqing.repository.PostCommentRepository;
 import com.nankai.yuqing.repository.PostRepository;
+import com.nankai.yuqing.service.AnalysisService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.format.DateTimeFormatter;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /**
@@ -20,10 +22,14 @@ public class PostController {
 
     private final PostRepository postRepository;
     private final PostCommentRepository commentRepository;
+    private final AnalysisService analysisService;
 
-    public PostController(PostRepository postRepository, PostCommentRepository commentRepository) {
+    public PostController(PostRepository postRepository,
+                          PostCommentRepository commentRepository,
+                          AnalysisService analysisService) {
         this.postRepository = postRepository;
         this.commentRepository = commentRepository;
+        this.analysisService = analysisService;
     }
 
     @GetMapping
@@ -32,13 +38,17 @@ public class PostController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String emotion,
             @RequestParam(required = false) String source,
+            @RequestParam(required = false) String reviewStatus,
+            @RequestParam(defaultValue = "latest") String sortBy,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(size, 200));
+        String safeSortBy = Set.of("latest", "risk", "heat").contains(sortBy) ? sortBy : "latest";
         Page<Post> resultPage = postRepository.searchPosts(
             blankToNull(keyword), blankToNull(category), blankToNull(emotion), blankToNull(source),
+            blankToNull(reviewStatus), safeSortBy,
             PageRequest.of(safePage - 1, safeSize));
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -75,6 +85,134 @@ public class PostController {
         commentResult.put("data", comments.getContent().stream().map(this::toCommentMap).toList());
         result.put("comments", commentResult);
         return result;
+    }
+
+    /**
+     * 批量确认 AI 结论或批量标记无关内容。一次聚合事件，避免逐条保存时重复计算。
+     */
+    @PutMapping("/review/batch")
+    public Map<String, Object> batchReview(@RequestBody Map<String, Object> body) {
+        Object rawIds = body.get("ids");
+        if (!(rawIds instanceof Collection<?> idValues)) {
+            return Map.of("error", "请选择需要复核的帖子");
+        }
+        List<String> ids = idValues.stream()
+            .map(String::valueOf)
+            .map(String::trim)
+            .filter(id -> !id.isEmpty())
+            .distinct()
+            .limit(200)
+            .toList();
+        if (ids.isEmpty()) return Map.of("error", "请选择需要复核的帖子");
+
+        String action = Objects.toString(body.get("action"), "").trim();
+        if (!Set.of("confirm", "irrelevant").contains(action)) {
+            return Map.of("error", "批量操作仅支持确认AI或标记无关内容");
+        }
+        String note = Objects.toString(body.get("note"), "").trim();
+        if ("irrelevant".equals(action) && note.isEmpty()) {
+            return Map.of("error", "批量标记无关内容时必须填写原因");
+        }
+        String reviewer = Objects.toString(body.get("reviewer"), "管理员").trim();
+        LocalDateTime reviewedAt = LocalDateTime.now();
+        List<Post> posts = postRepository.findAllById(ids);
+        for (Post post : posts) {
+            if ("confirm".equals(action)) {
+                post.setReviewStatus("已确认");
+                post.setReviewedCategory(defaultString(post.getSafetyCategory(), "其他"));
+                post.setReviewedRiskLevel(aiRiskLevel(post));
+                post.setReviewedEmotion(defaultString(post.getEmotion(), "中性"));
+            } else {
+                post.setReviewStatus("无关内容");
+                post.setReviewedCategory("其他");
+                post.setReviewedRiskLevel("低");
+                post.setReviewedEmotion(defaultString(post.getEmotion(), "中性"));
+            }
+            post.setReviewNote(note);
+            post.setReviewer(reviewer.isEmpty() ? "管理员" : reviewer);
+            post.setReviewedAt(reviewedAt);
+        }
+        postRepository.saveAll(posts);
+        analysisService.aggregateEvents();
+        return Map.of(
+            "success", true,
+            "updated", posts.size(),
+            "missing", Math.max(0, ids.size() - posts.size()));
+    }
+
+    /**
+     * 保存人工复核结论，同时保留原始 AI 分析结果用于差异对比。
+     */
+    @PutMapping("/{id}/review")
+    public Map<String, Object> review(
+            @PathVariable String id,
+            @RequestBody Map<String, String> body) {
+        Post post = postRepository.findById(id).orElse(null);
+        if (post == null) return Map.of("error", "帖子不存在");
+
+        String action = Objects.toString(body.get("action"), "").trim();
+        String note = Objects.toString(body.get("note"), "").trim();
+        String reviewer = Objects.toString(body.get("reviewer"), "管理员").trim();
+
+        switch (action) {
+            case "confirm" -> {
+                post.setReviewStatus("已确认");
+                post.setReviewedCategory(defaultString(post.getSafetyCategory(), "其他"));
+                post.setReviewedRiskLevel(aiRiskLevel(post));
+                post.setReviewedEmotion(defaultString(post.getEmotion(), "中性"));
+            }
+            case "correct" -> {
+                String category = Objects.toString(body.get("category"), "").trim();
+                String riskLevel = Objects.toString(body.get("riskLevel"), "").trim();
+                String emotion = Objects.toString(body.get("emotion"), "").trim();
+                if (category.isEmpty() || riskLevel.isEmpty() || emotion.isEmpty() || note.isEmpty()) {
+                    return Map.of("error", "修正分析时必须填写分类、风险、情绪和复核说明");
+                }
+                if (!Set.of("高", "中", "低").contains(riskLevel)) {
+                    return Map.of("error", "无效的风险等级");
+                }
+                if (!Set.of("正面", "中性", "负面").contains(emotion)) {
+                    return Map.of("error", "无效的情绪类型");
+                }
+                post.setReviewStatus("已修正");
+                post.setReviewedCategory(category);
+                post.setReviewedRiskLevel(riskLevel);
+                post.setReviewedEmotion(emotion);
+            }
+            case "irrelevant" -> {
+                if (note.isEmpty()) return Map.of("error", "标记无关内容时必须填写原因");
+                post.setReviewStatus("无关内容");
+                post.setReviewedCategory("其他");
+                post.setReviewedRiskLevel("低");
+                post.setReviewedEmotion(defaultString(post.getEmotion(), "中性"));
+            }
+            case "reset" -> {
+                post.setReviewStatus("待复核");
+                post.setReviewedCategory(null);
+                post.setReviewedRiskLevel(null);
+                post.setReviewedEmotion(null);
+                post.setReviewNote(null);
+                post.setReviewer(null);
+                post.setReviewedAt(null);
+                postRepository.save(post);
+                analysisService.aggregateEvents();
+                return toMap(post);
+            }
+            default -> {
+                return Map.of("error", "无效的复核操作");
+            }
+        }
+
+        post.setReviewNote(note);
+        post.setReviewer(reviewer.isEmpty() ? "管理员" : reviewer);
+        post.setReviewedAt(LocalDateTime.now());
+        postRepository.save(post);
+        analysisService.aggregateEvents();
+        return toMap(post);
+    }
+
+    private String defaultString(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private Map<String, Object> toCommentMap(PostComment comment) {
@@ -117,10 +255,28 @@ public class PostController {
         m.put("imageUrls", imgs);
 
         // 分析结果
-        m.put("safetyCategory", p.getSafetyCategory() != null ? p.getSafetyCategory() : "其他");
-        m.put("emotion", p.getEmotion() != null ? p.getEmotion() : "中性");
-        m.put("riskScore", p.getRiskScore());
-        m.put("riskLevel", p.getRiskLevel());
+        String reviewStatus = p.getReviewStatus() == null ? "待复核" : p.getReviewStatus();
+        String effectiveCategory = p.getReviewedCategory() != null
+            ? p.getReviewedCategory() : defaultString(p.getSafetyCategory(), "其他");
+        String effectiveEmotion = p.getReviewedEmotion() != null
+            ? p.getReviewedEmotion() : defaultString(p.getEmotion(), "中性");
+        String effectiveRiskLevel = p.getReviewedRiskLevel() != null
+            ? p.getReviewedRiskLevel() : aiRiskLevel(p);
+
+        m.put("safetyCategory", effectiveCategory);
+        m.put("emotion", effectiveEmotion);
+        m.put("riskLevel", effectiveRiskLevel);
+        m.put("aiSafetyCategory", defaultString(p.getSafetyCategory(), "其他"));
+        m.put("aiEmotion", defaultString(p.getEmotion(), "中性"));
+        m.put("aiRiskLevel", aiRiskLevel(p));
+        m.put("riskLabelSource", p.getProvidedRiskLevel() != null ? "外部AI" : "本地分析");
+        m.put("reviewStatus", reviewStatus);
+        m.put("reviewedCategory", p.getReviewedCategory());
+        m.put("reviewedEmotion", p.getReviewedEmotion());
+        m.put("reviewedRiskLevel", p.getReviewedRiskLevel());
+        m.put("reviewNote", p.getReviewNote());
+        m.put("reviewer", p.getReviewer());
+        m.put("reviewedAt", p.getReviewedAt());
         m.put("location", p.getLocation());
         m.put("problem", p.getProblem());
         m.put("demand", p.getDemand());
@@ -144,6 +300,13 @@ public class PostController {
         // 时间描述
         m.put("timeDesc", timeDesc(p.getPublishTime()));
         return m;
+    }
+
+    private String aiRiskLevel(Post post) {
+        return defaultString(
+            post.getProvidedRiskLevel() != null
+                ? post.getProvidedRiskLevel() : post.getRiskLevel(),
+            "低");
     }
 
     private String timeDesc(java.time.LocalDateTime time) {

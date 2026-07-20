@@ -16,14 +16,29 @@ public interface PostRepository extends JpaRepository<Post, String> {
 
     @Query("SELECT p FROM Post p WHERE " +
            "(:keyword IS NULL OR p.title LIKE %:keyword% OR p.content LIKE %:keyword%) " +
-           "AND (:category IS NULL OR (:category = '其他' AND p.safetyCategory IS NULL) OR p.safetyCategory = :category) " +
-           "AND (:emotion IS NULL OR p.emotion = :emotion) " +
+           "AND (:category IS NULL " +
+           "  OR (:category = '其他' AND COALESCE(p.reviewedCategory, p.safetyCategory) IS NULL) " +
+           "  OR COALESCE(p.reviewedCategory, p.safetyCategory) = :category) " +
+           "AND (:emotion IS NULL OR COALESCE(p.reviewedEmotion, p.emotion) = :emotion) " +
            "AND (:source IS NULL OR p.categoryName = :source) " +
-           "ORDER BY p.publishTime DESC")
+           "AND (:reviewStatus IS NULL " +
+           "  OR (:reviewStatus = '待复核' AND (p.reviewStatus IS NULL OR p.reviewStatus = '待复核')) " +
+           "  OR p.reviewStatus = :reviewStatus) " +
+           "ORDER BY " +
+           "CASE WHEN :sortBy = 'risk' THEN " +
+           "  CASE COALESCE(p.reviewedRiskLevel, p.providedRiskLevel, p.riskLevel) " +
+           "    WHEN '高' THEN 3 WHEN '中' THEN 2 ELSE 1 END " +
+           "END DESC, " +
+           "CASE WHEN :sortBy = 'heat' THEN " +
+           "  COALESCE(p.viewCount, 0) + COALESCE(p.commentCount, 0) * 20 + COALESCE(p.likeCount, 0) * 5 " +
+           "END DESC, " +
+           "p.publishTime DESC")
     Page<Post> searchPosts(@Param("keyword") String keyword,
                            @Param("category") String category,
                            @Param("emotion") String emotion,
                            @Param("source") String source,
+                           @Param("reviewStatus") String reviewStatus,
+                           @Param("sortBy") String sortBy,
                            Pageable pageable);
 
     @Query("SELECT p.id FROM Post p")
@@ -32,7 +47,9 @@ public interface PostRepository extends JpaRepository<Post, String> {
     @Query("SELECT COUNT(p) FROM Post p")
     long countAll();
 
-    @Query("SELECT p.safetyCategory, COUNT(p) FROM Post p WHERE p.safetyCategory IS NOT NULL GROUP BY p.safetyCategory")
+    @Query("SELECT COALESCE(p.reviewedCategory, p.safetyCategory), COUNT(p) FROM Post p " +
+           "WHERE COALESCE(p.reviewedCategory, p.safetyCategory) IS NOT NULL " +
+           "GROUP BY COALESCE(p.reviewedCategory, p.safetyCategory)")
     List<Object[]> countByCategory();
 
     @Query("SELECT p FROM Post p WHERE p.publishTime >= :start ORDER BY p.publishTime ASC")

@@ -48,10 +48,33 @@ export const dashboardApi = {
 
 // 帖子监测
 export const postApi = {
-  list: (params: { keyword?: string; category?: string; emotion?: string; source?: string; page?: number; size?: number }) =>
+  list: (params: {
+    keyword?: string
+    category?: string
+    emotion?: string
+    source?: string
+    reviewStatus?: string
+    sortBy?: 'latest' | 'risk' | 'heat'
+    page?: number
+    size?: number
+  }) =>
     http.get('/posts', { params }),
   detail: (id: string, params?: { commentPage?: number; commentSize?: number }) =>
     http.get(`/posts/${id}`, { params }),
+  review: (id: string, data: {
+    action: 'confirm' | 'correct' | 'irrelevant' | 'reset'
+    category?: string
+    riskLevel?: string
+    emotion?: string
+    note?: string
+    reviewer?: string
+  }) => http.put(`/posts/${id}/review`, data),
+  batchReview: (data: {
+    ids: string[]
+    action: 'confirm' | 'irrelevant'
+    note?: string
+    reviewer?: string
+  }) => http.put('/posts/review/batch', data, { timeout: 120000 }),
 }
 
 // 评论评判依据（接口不返回评论者个人标识）
@@ -64,7 +87,14 @@ export const commentApi = {
 export const eventApi = {
   list: () => http.get('/events'),
   detail: (id: string) => http.get(`/events/${id}`),
-  updateStatus: (id: string, data: { status?: string; risk?: string }) =>
+  updateStatus: (id: string, data: {
+    status?: string
+    risk?: string
+    assignee?: string
+    dueAt?: string
+    remark?: string
+    operator?: string
+  }) =>
     http.put(`/events/${id}/status`, data),
 }
 

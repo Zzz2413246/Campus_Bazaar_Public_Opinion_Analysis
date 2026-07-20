@@ -23,6 +23,14 @@ const event = ref({
     { reason: '事件类型：诈骗', score: '+30', detail: '高风险类别' },
     { reason: '情绪得分：负面85%', score: '+12', detail: '强烈负面情绪' },
   ],
+  alertTriggers: [] as Array<{
+    code: string
+    reason: string
+    detail: string
+    actual: string | number
+    threshold: string | number
+    unit: string
+  }>,
   trend: [{ date: '7月10日', count: 5 }, { date: '7月11日', count: 12 }, { date: '7月12日', count: 28 }],
   relatedPosts: [
     { time: '7月12日 14:30', source: '校园集市', content: '西门菜鸟驿站有人假装借钱，骗了我200块，大家小心！', emotion: '😡', comments: 23 },
@@ -30,30 +38,84 @@ const event = ref({
     { time: '7月11日 16:45', source: '校园集市', content: '今天在西门遇到个借钱的，说自己是外校学生找不到钱包了', emotion: '😐', comments: 8 },
     { time: '7月10日 09:15', source: '微博', content: '南开西门最近出现疑似诈骗人员，各位同学注意安全', emotion: '😟', comments: 12 },
   ],
+  status: '待核实',
+  assignee: '',
+  dueAt: '',
+  resolution: '',
+  overdue: false,
+  actions: [] as Array<{ id?: number; operator: string; time: string; action: string; desc: string }>,
 })
 
 const adjustedRisk = ref(event.value.risk)
-const dispositionStatus = ref('未处理')
+const dispositionStatus = ref('待核实')
+const assignee = ref('')
+const dueAt = ref('')
 const remark = ref('')
 const saving = ref(false)
 
 // 保存研判结果到后端
 async function saveDisposition() {
   if (saving.value) return
+  if (['处理中', '持续观察'].includes(dispositionStatus.value) && !assignee.value.trim()) {
+    toast.error('进入处理阶段前请填写负责人')
+    return
+  }
+  if (['已解决', '误报'].includes(dispositionStatus.value) && !remark.value.trim()) {
+    toast.error('关闭事件前请填写处置结论')
+    return
+  }
   saving.value = true
   try {
     await eventApi.updateStatus(event.value.id, {
       status: dispositionStatus.value,
       risk: adjustedRisk.value,
+      assignee: assignee.value,
+      dueAt: dueAt.value,
+      remark: remark.value,
+      operator: localStorage.getItem('yuqing_nickname') || '管理员',
     })
-    // 研判保存成功提示
-    toast.success('研判结果已保存')
+    event.value.status = dispositionStatus.value
+    event.value.risk = adjustedRisk.value
+    event.value.assignee = assignee.value
+    event.value.dueAt = dueAt.value
+    event.value.resolution = remark.value
+    event.value.overdue = false
+    const detailRes: any = await eventApi.detail(event.value.id)
+    const detail = unwrap(detailRes) || {}
+    if (Array.isArray(detail.actions)) {
+      event.value.actions = detail.actions.map((action: any) => ({
+        id: action.id,
+        operator: action.operator ?? '系统',
+        time: formatActionTime(action.time),
+        action: action.action ?? '更新事件',
+        desc: action.desc ?? '',
+      }))
+    }
+    toast.success('处置信息已保存')
   } catch (err) {
-    console.error('保存研判失败', err)
-    alert('保存失败，请稍后重试')
+    console.error('保存处置信息失败', err)
+    toast.error('保存失败，请稍后重试')
   } finally {
     saving.value = false
   }
+}
+
+function toDateTimeLocal(value: unknown) {
+  if (!value) return ''
+  const text = String(value)
+  return text.length >= 16 ? text.slice(0, 16) : text
+}
+
+function formatActionTime(value: unknown) {
+  if (!value) return ''
+  const date = new Date(String(value))
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 // 生成简报并复制到剪贴板
@@ -61,7 +123,7 @@ async function generateBrief() {
   // 组装简报文本
   const lines: string[] = []
   lines.push(`事件标题：${event.value.title}`)
-  lines.push(`风险等级：${adjustedRisk.value}（风险评分 ${event.value.riskScore}）`)
+  lines.push(`风险等级：${adjustedRisk.value}`)
   lines.push(`处置状态：${dispositionStatus.value}`)
   lines.push(`影响范围：${event.value.stats.affectedRange}`)
   lines.push(`情绪倾向：${event.value.stats.emotion}`)
@@ -121,6 +183,16 @@ onMounted(async () => {
             detail: r.detail ?? r.desc ?? '',
           }))
         : cur.riskReasons,
+      alertTriggers: Array.isArray(d.alertTriggers)
+        ? d.alertTriggers.map((trigger: any) => ({
+            code: trigger.code ?? '',
+            reason: trigger.reason ?? '',
+            detail: trigger.detail ?? '',
+            actual: trigger.actual ?? '',
+            threshold: trigger.threshold ?? '',
+            unit: trigger.unit ?? '',
+          }))
+        : [],
       trend: Array.isArray(d.trend) && d.trend.length
         ? d.trend.map((t: any) => ({ date: t.date ?? t.time ?? '', count: t.count ?? t.value ?? 0 }))
         : cur.trend,
@@ -133,8 +205,26 @@ onMounted(async () => {
             comments: p.comments ?? p.commentCount ?? 0,
           }))
         : cur.relatedPosts,
+      status: d.status ?? cur.status,
+      assignee: d.assignee ?? '',
+      dueAt: toDateTimeLocal(d.dueAt),
+      resolution: d.resolution ?? '',
+      overdue: Boolean(d.overdue),
+      actions: Array.isArray(d.actions)
+        ? d.actions.map((action: any) => ({
+            id: action.id,
+            operator: action.operator ?? '系统',
+            time: formatActionTime(action.time),
+            action: action.action ?? '更新事件',
+            desc: action.desc ?? '',
+          }))
+        : [],
     }
     adjustedRisk.value = event.value.risk
+    dispositionStatus.value = event.value.status
+    assignee.value = event.value.assignee
+    dueAt.value = event.value.dueAt
+    remark.value = event.value.resolution
   } catch (err) {
     console.warn('事件详情加载失败，使用默认数据', err)
   } finally {
@@ -150,9 +240,11 @@ onMounted(async () => {
     <!-- 返回 + 标题 -->
     <div class="flex items-center gap-3 flex-wrap">
       <button @click="router.push('/events')" class="btn btn-ghost !py-1.5 !px-3 text-xs"><AppIcon name="arrow-left" :size="14" /> 返回列表</button>
-      <span :class="['badge', event.risk === '高' ? 'badge-high' : 'badge-medium']">
-        <span :class="['dot', event.risk === '高' ? 'dot-high' : 'dot-medium']"></span>{{ event.risk }}风险
+      <span :class="['badge', event.risk === '高' ? 'badge-high' : event.risk === '中' ? 'badge-medium' : 'badge-low']">
+        <span :class="['dot', event.risk === '高' ? 'dot-high' : event.risk === '中' ? 'dot-medium' : 'dot-low']"></span>{{ event.risk }}风险
       </span>
+      <span class="badge badge-info">{{ event.status }}</span>
+      <span v-if="event.overdue" class="badge badge-high">已超时</span>
       <h2 class="text-lg font-semibold text-slate-800">{{ event.title }}</h2>
     </div>
 
@@ -166,8 +258,8 @@ onMounted(async () => {
     <div class="grid grid-cols-2 xl:grid-cols-4 gap-5">
       <div class="card card-pad text-center relative overflow-hidden">
         <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-rose-500 to-rose-400"></div>
-        <div class="text-3xl font-bold text-rose-500 tracking-tight">{{ event.riskScore }}</div>
-        <div class="text-xs text-slate-500 mt-1">风险评分 / 100</div>
+        <div class="text-3xl font-bold text-rose-500 tracking-tight">{{ event.risk }}风险</div>
+        <div class="text-xs text-slate-500 mt-1">当前风险判定</div>
       </div>
       <div class="card card-pad text-center relative overflow-hidden">
         <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-brand-500 to-brand-400"></div>
@@ -187,6 +279,36 @@ onMounted(async () => {
     </div>
 
     <!-- 判断依据 + 风险雷达 -->
+    <div class="card card-pad border-l-4" :class="event.alertTriggers.length ? 'border-l-rose-500' : 'border-l-emerald-500'">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 class="section-title">预警触发记录</h3>
+          <p class="section-sub mt-1">依据系统设置中的当前规则实时计算，展示指标实值与触发阈值。</p>
+        </div>
+        <span :class="['badge', event.alertTriggers.length ? 'badge-high' : 'badge-success']">
+          {{ event.alertTriggers.length ? `命中 ${event.alertTriggers.length} 项规则` : '未触发预警' }}
+        </span>
+      </div>
+      <div v-if="event.alertTriggers.length" class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+        <div
+          v-for="trigger in event.alertTriggers"
+          :key="trigger.code"
+          class="p-3.5 bg-rose-50/60 border border-rose-100"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-sm font-medium text-rose-800">{{ trigger.reason }}</span>
+            <span class="text-xs text-rose-700 bg-white/80 px-2 py-1 whitespace-nowrap">
+              实值 {{ trigger.actual }}{{ trigger.unit }} / 阈值 {{ trigger.threshold }}{{ trigger.unit }}
+            </span>
+          </div>
+          <p class="text-xs text-rose-700/80 mt-1.5">{{ trigger.detail }}</p>
+        </div>
+      </div>
+      <p v-else class="text-sm text-emerald-700 mt-4 bg-emerald-50 border border-emerald-100 p-3">
+        当前事件未达到任何已启用的预警阈值，仍可继续观察后续讨论变化。
+      </p>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <div class="card card-pad">
         <h3 class="section-title mb-4">风险判断依据</h3>
@@ -196,11 +318,12 @@ onMounted(async () => {
               <div class="text-sm text-slate-700">{{ r.reason }}</div>
               <div class="text-xs text-slate-500 mt-0.5">{{ r.detail }}</div>
             </div>
-            <span class="text-sm font-semibold text-brand-600">{{ r.score }}</span>
           </div>
           <div class="flex items-center justify-between p-3 bg-brand-50 border border-brand-100">
-            <div class="text-sm font-semibold text-brand-700">综合评分</div>
-            <span class="text-lg font-bold text-brand-700">{{ event.riskScore }}</span>
+            <div class="text-sm font-semibold text-brand-700">当前最终判定</div>
+            <span class="badge" :class="event.risk === '高' ? 'badge-high' : event.risk === '中' ? 'badge-medium' : 'badge-low'">
+              {{ event.risk }}风险
+            </span>
           </div>
         </div>
       </div>
@@ -244,13 +367,22 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- 人工研判 -->
+    <!-- 事件处置 -->
     <div class="card card-pad relative overflow-hidden">
       <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-brand-600 to-accent-500"></div>
-      <h3 class="section-title mb-4">人工研判</h3>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+      <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div>
-          <label class="text-sm text-slate-600 block mb-1.5">风险等级调整</label>
+          <h3 class="section-title">事件处置</h3>
+          <p class="section-sub mt-1">完成负责人、截止时间和处置结论后保存，系统会自动记录操作历史。</p>
+        </div>
+        <span v-if="event.assignee" class="text-sm text-slate-600">当前负责人：<strong>{{ event.assignee }}</strong></span>
+      </div>
+      <div v-if="event.overdue" class="mb-4 border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        该事件已经超过计划完成时间，请及时更新处置进度或重新设置截止时间。
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+        <div>
+          <label class="text-sm text-slate-600 block mb-1.5">人工风险判定</label>
           <select v-model="adjustedRisk" class="select w-full">
             <option>高</option><option>中</option><option>低</option>
           </select>
@@ -258,19 +390,59 @@ onMounted(async () => {
         <div>
           <label class="text-sm text-slate-600 block mb-1.5">处置状态</label>
           <select v-model="dispositionStatus" class="select w-full">
-            <option>未处理</option><option>处理中</option><option>已确认</option><option>已忽略</option>
+            <option>待核实</option>
+            <option>处理中</option>
+            <option>持续观察</option>
+            <option>已解决</option>
+            <option>误报</option>
           </select>
         </div>
-        <div class="flex items-end gap-2">
-          <button class="btn btn-primary flex-1" :disabled="saving" @click="saveDisposition">
-            {{ saving ? '保存中...' : '保存研判' }}
-          </button>
-          <button class="btn btn-ghost" @click="generateBrief">生成简报</button>
+        <div>
+          <label class="text-sm text-slate-600 block mb-1.5">负责人</label>
+          <input v-model="assignee" class="input w-full" placeholder="例如：保卫处张老师" />
+        </div>
+        <div>
+          <label class="text-sm text-slate-600 block mb-1.5">计划完成时间</label>
+          <input v-model="dueAt" type="datetime-local" class="input w-full" />
         </div>
       </div>
       <div>
-        <label class="text-sm text-slate-600 block mb-1.5">研判备注</label>
-        <textarea v-model="remark" rows="2" placeholder="输入研判意见..." class="input w-full resize-none"></textarea>
+        <label class="text-sm text-slate-600 block mb-1.5">本次处置说明</label>
+        <textarea
+          v-model="remark"
+          rows="3"
+          placeholder="填写核实情况、已采取措施或关闭事件的结论..."
+          class="input w-full resize-none"
+        ></textarea>
+      </div>
+      <div class="flex items-center justify-end gap-2 mt-4">
+        <button class="btn btn-ghost" @click="generateBrief">生成简报</button>
+        <button class="btn btn-primary min-w-28" :disabled="saving" @click="saveDisposition">
+          {{ saving ? '保存中...' : '保存处置' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 处置记录 -->
+    <div class="card card-pad">
+      <div class="flex items-center justify-between mb-5">
+        <div>
+          <h3 class="section-title">处置记录</h3>
+          <p class="section-sub mt-1">按时间倒序展示事件的状态流转和处置说明。</p>
+        </div>
+        <span class="badge badge-neutral">{{ event.actions.length }} 条</span>
+      </div>
+      <div class="relative pl-7">
+        <div class="absolute left-[7px] top-2 bottom-2 w-px bg-slate-200"></div>
+        <div v-for="action in event.actions" :key="action.id ?? `${action.time}-${action.action}`" class="relative mb-5 last:mb-0">
+          <span class="absolute -left-7 top-1 w-4 h-4 rounded-full bg-brand-50 border-2 border-brand-500 ring-4 ring-white"></span>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-medium text-slate-800">{{ action.action }}</span>
+            <span class="text-xs text-slate-500">{{ action.operator }} · {{ action.time }}</span>
+          </div>
+          <p class="text-sm text-slate-600 mt-1.5">{{ action.desc }}</p>
+        </div>
+        <div v-if="!event.actions.length" class="text-sm text-slate-500">暂无处置记录</div>
       </div>
     </div>
   </div>

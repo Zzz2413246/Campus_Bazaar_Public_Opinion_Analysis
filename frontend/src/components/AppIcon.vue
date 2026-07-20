@@ -4,7 +4,7 @@ import {
   ShieldCheck, Bell, Search, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen,
   MessageSquare, AlertTriangle, Smile, Meh, Angry, MapPin, Tag, Megaphone,
   ThumbsUp, MessageCircle, Clock, ArrowLeft, ArrowRight, ArrowUp, ArrowDown,
-  Copy, Download, Plus, RefreshCw, Check, X, Sparkles, Send, LogOut,
+  Copy, Download, Plus, RefreshCw, Check, X, Sparkles, Send, LogOut, Eye, Bookmark,
   type LucideIcon,
 } from 'lucide-vue-next'
 
@@ -53,6 +53,8 @@ const map: Record<string, LucideIcon> = {
   'refresh': RefreshCw,
   'check': Check,
   'x': X,
+  'eye': Eye,
+  'bookmark': Bookmark,
   'sparkles': Sparkles,
   'send': Send,
   'logout': LogOut,

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import BaseChart from '../components/BaseChart.vue'
 import AppIcon from '../components/AppIcon.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
@@ -11,6 +12,7 @@ import { useCountUp } from '../utils/useCountUp'
 import { dashboardApi } from '@/utils/api'
 
 const loading = ref(false)
+const router = useRouter()
 
 const stats = ref([
   { label: '总帖子数', value: 12845, change: '较昨日 +12%', trend: 'up', icon: 'message-square', accent: 'brand', spark: [980, 1120, 1050, 1340, 1180, 1420, 1245], sparkColor: '#6366f1' },
@@ -40,9 +42,9 @@ const recentEvents = ref([
 ])
 
 const alerts = ref([
-  { title: '21栋宿舍电路起火传闻', meta: '32条讨论 · 7月13日', risk: '高' },
-  { title: '二食堂卫生投诉集中', meta: '28条讨论 · 7月11日', risk: '中' },
-  { title: '校园交通拥堵讨论', meta: '18条讨论 · 7月12日', risk: '中' },
+  { id: '', title: '21栋宿舍电路起火传闻', meta: '32条讨论 · 7月13日', risk: '高', triggerSummary: '高危信号词命中', matchedRuleCount: 1 },
+  { id: '', title: '二食堂卫生投诉集中', meta: '28条讨论 · 7月11日', risk: '中', triggerSummary: '同类讨论集中', matchedRuleCount: 1 },
+  { id: '', title: '校园交通拥堵讨论', meta: '18条讨论 · 7月12日', risk: '中', triggerSummary: '互动热度较高', matchedRuleCount: 1 },
 ])
 
 const trendData = ref<any>(null)
@@ -117,11 +119,15 @@ async function loadDashboard(isManual = false) {
     // 实时预警
     if (Array.isArray(d.alerts) && d.alerts.length) {
       alerts.value = d.alerts.map((a: any) => ({
+        id: a.id ?? '',
         title: a.title ?? a.name ?? '',
-        meta: a.meta ?? a.desc ?? (a.postCount != null ? `${a.postCount}条讨论` : ''),
+        meta: a.meta ?? a.desc
+          ?? [a.postCount != null ? `${a.postCount}条讨论` : '', a.date ?? ''].filter(Boolean).join(' · '),
         risk: a.risk ?? a.riskLevel ?? '中',
         date: a.date ?? '',
         postCount: a.postCount ?? 0,
+        triggerSummary: a.triggerSummary ?? '',
+        matchedRuleCount: Number(a.matchedRuleCount ?? 0),
       }))
     }
     // 图表数据
@@ -141,6 +147,10 @@ async function loadDashboard(isManual = false) {
 onMounted(() => {
   loadDashboard(false)
 })
+
+function openAlert(id: string) {
+  if (id) router.push(`/events/${id}`)
+}
 </script>
 
 <template>
@@ -217,18 +227,23 @@ onMounted(() => {
             <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
             <h3 class="section-title">实时风险预警</h3>
           </div>
-          <span class="btn-link text-sm">查看全部 →</span>
+          <button class="btn-link text-sm" @click="router.push('/events')">查看全部 →</button>
         </div>
         <div class="space-y-2.5">
           <div
             v-for="(a, i) in alerts"
             :key="i"
             class="flex items-center gap-3 p-3 bg-slate-50/70 border border-slate-100 hover:bg-slate-100/70 transition-colors cursor-pointer"
+            @click="openAlert(a.id)"
           >
             <span :class="a.risk === '高' ? 'dot dot-high flex-shrink-0 pulse-dot bg-rose-500' : 'dot dot-medium flex-shrink-0'"></span>
             <div class="flex-1 min-w-0">
               <div class="text-sm text-slate-800 font-medium">{{ a.title }}</div>
               <div class="text-xs text-slate-500 mt-0.5">{{ a.meta }}</div>
+              <div v-if="a.triggerSummary" class="text-xs text-rose-600 mt-1">
+                触发：{{ a.triggerSummary }}
+                <span v-if="a.matchedRuleCount > 2">等 {{ a.matchedRuleCount }} 项</span>
+              </div>
             </div>
             <span class="badge" :class="riskBadge(a.risk)">{{ a.risk }}风险</span>
           </div>

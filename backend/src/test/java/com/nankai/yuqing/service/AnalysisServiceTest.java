@@ -1,11 +1,14 @@
 package com.nankai.yuqing.service;
 
+import com.nankai.yuqing.model.EventEntity;
 import com.nankai.yuqing.model.Post;
 import com.nankai.yuqing.model.PostComment;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -176,6 +179,39 @@ class AnalysisServiceTest {
         assertTrue(assisted.getRiskScore() > baseline.getRiskScore());
         assertTrue(assisted.getRiskScore() - baseline.getRiskScore() <= 12);
         assertEquals("原帖文本+评论佐证", assisted.getAnalysisBasis());
+    }
+
+    @Test
+    void configurableAlertLayerExplainsEveryMatchedSignal() {
+        EventEntity event = new EventEntity();
+        event.setRiskScore(76);
+        event.setRisk("高");
+
+        List<Post> posts = java.util.stream.IntStream.range(0, 4)
+            .mapToObj(index -> {
+                Post post = post(
+                    "21栋宿舍起火报警" + index,
+                    "现场冒烟，已经报警并疏散，请大家不要聚集",
+                    "打听求助");
+                post.setEmotion("负面");
+                post.setCommentCount(20);
+                post.setLikeCount(10);
+                post.setViewCount(2000);
+                post.setLocation("21栋宿舍");
+                post.setPublishTime(LocalDateTime.now().minusMinutes(index * 20L));
+                return post;
+            })
+            .toList();
+
+        List<Map<String, Object>> triggers = service.getAlertTriggers(event, posts);
+        List<String> codes = triggers.stream()
+            .map(trigger -> String.valueOf(trigger.get("code")))
+            .toList();
+
+        assertTrue(codes.contains("risk_label"));
+        assertTrue(codes.contains("short_term_burst"));
+        assertTrue(codes.contains("repeated_location"));
+        assertTrue(codes.contains("urgent_keyword"));
     }
 
     private Post post(String title, String content, String source) {

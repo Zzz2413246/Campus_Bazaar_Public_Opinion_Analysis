@@ -65,6 +65,10 @@
   --spacing-md: 16px;
   --spacing-lg: 24px;
   --spacing-xl: 32px;
+  --layout-gutter: 32px;
+  --layout-section-gap: 24px;
+  --panel-padding-y: 24px;
+  --panel-padding-x: 32px;
 
   /* 动画 */
   --transition-fast: 150ms ease;
@@ -128,18 +132,18 @@ body {
   .page {
     display: flex;
     flex-direction: column;
-    gap: 24px;
-    padding-left: 32px;
-    padding-right: 32px;
+    gap: var(--layout-section-gap);
+    width: 100%;
+    min-width: 0;
   }
 
   /* 卡片 · 直角矩形 */
   .card {
     @apply bg-white border border-slate-200/70 shadow-sm shadow-slate-200/50;
-    padding: 32px 52px !important;
+    padding: var(--panel-padding-y) var(--panel-padding-x) !important;
   }
   .card-pad {
-    padding: 32px 52px !important;
+    padding: var(--panel-padding-y) var(--panel-padding-x) !important;
   }
   .card-hover {
     @apply transition-all duration-200 hover:shadow-lg hover:shadow-slate-200/70 hover:border-slate-300/80 hover:-translate-y-0.5;
@@ -156,7 +160,7 @@ body {
   /* 统计卡 · 直角矩形，不裁切内容 */
   .stat-card {
     @apply relative bg-white border border-slate-200/70 shadow-sm shadow-slate-200/50;
-    padding: 32px 52px !important;
+    padding: var(--panel-padding-y) var(--panel-padding-x) !important;
   }
   .stat-card::after {
     content: '';

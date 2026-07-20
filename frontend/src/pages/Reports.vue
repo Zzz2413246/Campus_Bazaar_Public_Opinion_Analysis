@@ -16,6 +16,7 @@ const types = [
 
 const loading = ref(false)
 const previewLoading = ref(false)
+const exportingPdf = ref(false)
 
 type ReportItem = {
   key: string
@@ -172,17 +173,124 @@ async function copyText() {
   }
 }
 
-// 导出文本文件（模拟导出PDF/Word）
-function exportFile(format: string) {
-  const blob = new Blob([previewContent.value], { type: 'text/plain;charset=utf-8' })
+function safeFilename(name: string) {
+  return name.replace(/[\\/:*?"<>|]/g, '_').trim() || '校园安全舆情报告'
+}
+
+async function exportPdf() {
+  if (!selectedReport.value || exportingPdf.value) return
+
+  exportingPdf.value = true
+  const report = document.createElement('article')
+  report.setAttribute('aria-hidden', 'true')
+  Object.assign(report.style, {
+    position: 'fixed',
+    left: '-10000px',
+    top: '0',
+    width: '794px',
+    padding: '64px 68px',
+    background: '#ffffff',
+    color: '#1e293b',
+    fontFamily: '"Microsoft YaHei", "PingFang SC", Arial, sans-serif',
+    fontSize: '16px',
+    lineHeight: '1.85',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'break-word',
+  })
+
+  const title = document.createElement('h1')
+  title.textContent = selectedReport.value.title
+  Object.assign(title.style, {
+    margin: '0 0 28px',
+    paddingBottom: '18px',
+    borderBottom: '2px solid #2563eb',
+    color: '#0f172a',
+    fontSize: '26px',
+    lineHeight: '1.4',
+    fontWeight: '700',
+  })
+
+  const content = document.createElement('div')
+  content.textContent = previewContent.value
+  report.append(title, content)
+  document.body.appendChild(report)
+
+  try {
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+      import('html2canvas'),
+      import('jspdf'),
+    ])
+    await document.fonts.ready
+    const canvas = await html2canvas(report, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false,
+    })
+
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const margin = 12
+    const contentWidth = 210 - margin * 2
+    const contentHeight = 297 - margin * 2
+    const pageSliceHeight = Math.floor(canvas.width * contentHeight / contentWidth)
+    let sourceY = 0
+    let pageIndex = 0
+
+    while (sourceY < canvas.height) {
+      const sliceHeight = Math.min(pageSliceHeight, canvas.height - sourceY)
+      const pageCanvas = document.createElement('canvas')
+      pageCanvas.width = canvas.width
+      pageCanvas.height = sliceHeight
+      const context = pageCanvas.getContext('2d')
+      if (!context) throw new Error('无法创建 PDF 画布')
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, pageCanvas.width, pageCanvas.height)
+      context.drawImage(
+        canvas,
+        0, sourceY, canvas.width, sliceHeight,
+        0, 0, canvas.width, sliceHeight,
+      )
+
+      if (pageIndex > 0) pdf.addPage()
+      const imageHeight = sliceHeight * contentWidth / canvas.width
+      pdf.addImage(pageCanvas.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, contentWidth, imageHeight)
+      sourceY += sliceHeight
+      pageIndex += 1
+    }
+
+    pdf.save(`${safeFilename(selectedReport.value.title)}.pdf`)
+    toast.success('PDF 已导出')
+  } catch (err) {
+    console.error('PDF 导出失败', err)
+    toast.error('PDF 导出失败，请稍后重试')
+  } finally {
+    report.remove()
+    exportingPdf.value = false
+  }
+}
+
+function exportWord() {
+  const escapedContent = previewContent.value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${safeFilename(selectedReport.value?.title || '报告')}</title></head><body><pre style="font-family:Microsoft YaHei,Arial,sans-serif;white-space:pre-wrap;line-height:1.8">${escapedContent}</pre></body></html>`
+  const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${selectedReport.value?.title || '报告'}.${format === 'pdf' ? 'txt' : 'doc'}`
+  a.download = `${safeFilename(selectedReport.value?.title || '报告')}.doc`
   a.click()
   URL.revokeObjectURL(url)
-  // 导出成功提示
-  toast.success('文件已导出')
+  toast.success('Word 已导出')
+}
+
+function exportFile(format: 'pdf' | 'word') {
+  if (format === 'pdf') {
+    void exportPdf()
+  } else {
+    exportWord()
+  }
 }
 
 onMounted(loadReports)
@@ -237,7 +345,15 @@ onMounted(loadReports)
           </div>
           <div class="flex gap-2 flex-wrap">
             <button class="btn btn-ghost !py-1.5 !px-3 text-xs" @click="copyText"><AppIcon name="copy" :size="14" /> 复制文本</button>
-            <button class="btn btn-ghost !py-1.5 !px-3 text-xs" @click="exportFile('pdf')"><AppIcon name="download" :size="14" /> 导出 PDF</button>
+            <button
+              class="btn btn-ghost !py-1.5 !px-3 text-xs"
+              :disabled="exportingPdf"
+              :class="{ 'opacity-60 cursor-wait': exportingPdf }"
+              @click="exportFile('pdf')"
+            >
+              <AppIcon name="download" :size="14" />
+              {{ exportingPdf ? '正在生成...' : '导出 PDF' }}
+            </button>
             <button class="btn btn-ghost !py-1.5 !px-3 text-xs" @click="exportFile('word')"><AppIcon name="download" :size="14" /> 导出 Word</button>
           </div>
         </div>

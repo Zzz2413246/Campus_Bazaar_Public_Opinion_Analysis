@@ -231,15 +231,27 @@ public class DashboardController {
         List<EventEntity> events = eventRepository.findAllByOrderByRiskScoreDescCreatedAtDesc();
         List<Map<String, Object>> result = new ArrayList<>();
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM月dd日");
-        for (int i = 0; i < Math.min(3, events.size()); i++) {
-            EventEntity e = events.get(i);
+        for (EventEntity e : events) {
             if (!"高".equals(e.getRisk()) && !"中".equals(e.getRisk())) continue;
+            List<Post> posts = postRepository.findByEventId(e.getId());
+            List<Map<String, Object>> triggers =
+                analysisService.getAlertTriggers(e, posts);
+            if (triggers.isEmpty()) continue;
             Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", e.getId());
             m.put("title", e.getTitle());
             m.put("risk", e.getRisk());
             m.put("postCount", e.getPostCount());
             m.put("date", e.getCreatedAt() != null ? e.getCreatedAt().format(fmt) : "");
+            m.put("matchedRuleCount", triggers.size());
+            m.put("triggerSummary", triggers.stream()
+                .limit(2)
+                .map(trigger -> Objects.toString(trigger.get("reason"), ""))
+                .filter(reason -> !reason.isBlank())
+                .collect(java.util.stream.Collectors.joining("、")));
+            m.put("triggers", triggers);
             result.add(m);
+            if (result.size() >= 5) break;
         }
         return result;
     }

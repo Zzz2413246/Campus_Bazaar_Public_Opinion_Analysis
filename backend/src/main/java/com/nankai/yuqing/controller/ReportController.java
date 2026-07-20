@@ -127,12 +127,12 @@ public class ReportController {
             .toList();
 
         Map<String, Long> categories = periodPosts.stream()
-            .filter(post -> post.getSafetyCategory() != null)
+            .filter(post -> effectiveCategory(post) != null)
             .collect(Collectors.groupingBy(
-                Post::getSafetyCategory, LinkedHashMap::new, Collectors.counting()));
-        long positive = periodPosts.stream().filter(p -> "正面".equals(p.getEmotion())).count();
-        long neutral = periodPosts.stream().filter(p -> "中性".equals(p.getEmotion())).count();
-        long negative = periodPosts.stream().filter(p -> "负面".equals(p.getEmotion())).count();
+                this::effectiveCategory, LinkedHashMap::new, Collectors.counting()));
+        long positive = periodPosts.stream().filter(p -> "正面".equals(effectiveEmotion(p))).count();
+        long neutral = periodPosts.stream().filter(p -> "中性".equals(effectiveEmotion(p))).count();
+        long negative = periodPosts.stream().filter(p -> "负面".equals(effectiveEmotion(p))).count();
         String title = periodTitle(type, start, end);
 
         StringBuilder content = new StringBuilder();
@@ -241,5 +241,15 @@ public class ReportController {
 
     private String normalizeType(String type) {
         return Set.of("daily", "weekly", "event").contains(type) ? type : "daily";
+    }
+
+    private String effectiveCategory(Post post) {
+        return post.getReviewedCategory() != null
+            ? post.getReviewedCategory() : post.getSafetyCategory();
+    }
+
+    private String effectiveEmotion(Post post) {
+        return post.getReviewedEmotion() != null
+            ? post.getReviewedEmotion() : post.getEmotion();
     }
 }

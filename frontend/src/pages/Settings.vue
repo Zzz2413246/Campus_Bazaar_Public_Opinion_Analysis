@@ -10,6 +10,16 @@ const saveMsg = ref('')
 
 const categoryRules = ref<Record<string, string[]>>({})
 const builtinCategories = ref<string[]>([])
+const alertRules = ref({
+  minPostCount: 4,
+  negativeRatioPercent: 35,
+  minInteractions: 50,
+  minViews: 5000,
+  burstWindowHours: 2,
+  burstPostCount: 4,
+  repeatedLocationPostCount: 3,
+})
+const urgentKeywordsText = ref('聚集，线下行动，报警，起火，爆炸，持刀，跳楼，轻生，食物中毒，救护车')
 
 const categories = ref([
   '诈骗与财产安全', '治安与人身安全', '消防与用电安全', '校园交通安全',
@@ -46,6 +56,19 @@ onMounted(async () => {
     if (Array.isArray(d.builtinCategories)) {
       builtinCategories.value = d.builtinCategories.map(String)
     }
+    if (d.alertRules && typeof d.alertRules === 'object') {
+      alertRules.value = {
+        ...alertRules.value,
+        ...Object.fromEntries(
+          Object.entries(d.alertRules)
+            .filter(([key]) => key in alertRules.value)
+            .map(([key, value]) => [key, Number(value)])
+        ),
+      }
+      if (Array.isArray(d.alertRules.urgentKeywords)) {
+        urgentKeywordsText.value = d.alertRules.urgentKeywords.map(String).join('，')
+      }
+    }
     if (Array.isArray(d.sources) && d.sources.length) {
       sources.value = d.sources.map((s: any) => ({
         name: s.name ?? s.source ?? '',
@@ -69,6 +92,10 @@ async function saveSettings() {
     const res: any = await settingsApi.update({
       categories: categories.value,
       categoryRules: categoryRules.value,
+      alertRules: {
+        ...alertRules.value,
+        urgentKeywords: parseKeywords(urgentKeywordsText.value),
+      },
     })
     const d = unwrap(res) || res || {}
     if (Array.isArray(d.categories)) categories.value = d.categories.map(String)
@@ -202,6 +229,87 @@ function isBuiltin(name: string) {
       <div class="flex items-center gap-3 mt-3">
         <button @click="saveSettings" :disabled="saving" class="btn btn-primary">
           {{ saving ? '保存中...' : '保存分类' }}
+        </button>
+        <span v-if="saveMsg" class="text-sm text-emerald-600">{{ saveMsg }}</span>
+      </div>
+    </div>
+
+    <!-- 风险预警规则 -->
+    <div class="card card-pad">
+      <div class="flex items-start justify-between gap-4 mb-5 flex-wrap">
+        <div>
+          <h3 class="section-title">预警辅助规则</h3>
+          <p class="section-sub mt-1">是否属于中高风险直接采用AI标签；以下规则只补充讨论量、情绪和传播等解释依据。</p>
+        </div>
+        <span class="badge badge-info">保存后立即生效</span>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <label class="block">
+          <span class="text-sm text-slate-600 block mb-1.5">同类讨论数量</span>
+          <div class="relative">
+            <input v-model.number="alertRules.minPostCount" type="number" min="1" max="1000" class="input w-full pr-12" />
+            <span class="absolute right-3 top-2.5 text-xs text-slate-400">条</span>
+          </div>
+        </label>
+        <label class="block">
+          <span class="text-sm text-slate-600 block mb-1.5">负面情绪占比</span>
+          <div class="relative">
+            <input v-model.number="alertRules.negativeRatioPercent" type="number" min="0" max="100" class="input w-full pr-12" />
+            <span class="absolute right-3 top-2.5 text-xs text-slate-400">%</span>
+          </div>
+        </label>
+        <label class="block">
+          <span class="text-sm text-slate-600 block mb-1.5">评论与点赞合计</span>
+          <div class="relative">
+            <input v-model.number="alertRules.minInteractions" type="number" min="0" max="1000000" class="input w-full pr-12" />
+            <span class="absolute right-3 top-2.5 text-xs text-slate-400">次</span>
+          </div>
+        </label>
+        <label class="block">
+          <span class="text-sm text-slate-600 block mb-1.5">累计浏览量</span>
+          <div class="relative">
+            <input v-model.number="alertRules.minViews" type="number" min="0" max="10000000" class="input w-full pr-16" />
+            <span class="absolute right-3 top-2.5 text-xs text-slate-400">人次</span>
+          </div>
+        </label>
+        <label class="block">
+          <span class="text-sm text-slate-600 block mb-1.5">突增检测窗口</span>
+          <div class="relative">
+            <input v-model.number="alertRules.burstWindowHours" type="number" min="1" max="168" class="input w-full pr-12" />
+            <span class="absolute right-3 top-2.5 text-xs text-slate-400">小时</span>
+          </div>
+        </label>
+        <label class="block">
+          <span class="text-sm text-slate-600 block mb-1.5">窗口内帖子阈值</span>
+          <div class="relative">
+            <input v-model.number="alertRules.burstPostCount" type="number" min="2" max="1000" class="input w-full pr-12" />
+            <span class="absolute right-3 top-2.5 text-xs text-slate-400">条</span>
+          </div>
+        </label>
+        <label class="block">
+          <span class="text-sm text-slate-600 block mb-1.5">同地点重复次数</span>
+          <div class="relative">
+            <input v-model.number="alertRules.repeatedLocationPostCount" type="number" min="2" max="1000" class="input w-full pr-12" />
+            <span class="absolute right-3 top-2.5 text-xs text-slate-400">次</span>
+          </div>
+        </label>
+      </div>
+
+      <label class="block mt-4">
+        <span class="text-sm text-slate-600 block mb-1.5">高危信号词</span>
+        <textarea
+          v-model="urgentKeywordsText"
+          rows="3"
+          class="input w-full resize-none"
+          placeholder="多个信号词用逗号分隔，例如：聚集、线下行动、报警、起火"
+        ></textarea>
+        <span class="text-xs text-slate-400 mt-1.5 block">命中任意信号词即记录一条触发依据；设置为 0 的数值型阈值视为关闭该项。</span>
+      </label>
+
+      <div class="flex items-center gap-3 mt-4">
+        <button @click="saveSettings" :disabled="saving" class="btn btn-primary">
+          {{ saving ? '保存并重算中...' : '保存辅助规则' }}
         </button>
         <span v-if="saveMsg" class="text-sm text-emerald-600">{{ saveMsg }}</span>
       </div>

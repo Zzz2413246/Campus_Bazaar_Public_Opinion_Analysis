@@ -49,10 +49,14 @@ public class DataImportService {
     public Map<String, Object> importPosts(List<Map<String, Object>> rawData) {
         int total = rawData.size();
         int imported = 0;
+        int updatedRiskLabels = 0;
         int skipped = 0;
         int errors = 0;
-        Set<String> existingIds = new HashSet<>(postRepository.findAllIds());
+        Map<String, Post> existingPosts = postRepository.findAll().stream()
+            .collect(java.util.stream.Collectors.toMap(
+                Post::getId, post -> post, (left, right) -> left));
         List<Post> newPosts = new ArrayList<>();
+        List<Post> changedPosts = new ArrayList<>();
 
         log.info("开始导入 {} 条帖子数据", total);
 
@@ -64,9 +68,19 @@ public class DataImportService {
             }
             String postId = String.valueOf(rawId);
 
-            // 去重检查：已有相同ID则跳过
-            if (!existingIds.add(postId)) {
-                skipped++;
+            // 已有帖子允许补充或更新外部AI风险标签，其余内容仍按ID去重。
+            Post existing = existingPosts.get(postId);
+            if (existing != null) {
+                String incomingRiskLabel = normalizeRiskLabel(firstValue(
+                    item, "ai_risk_level", "risk_level", "riskLevel", "risk_label"));
+                if (incomingRiskLabel != null
+                    && !incomingRiskLabel.equals(existing.getProvidedRiskLevel())) {
+                    existing.setProvidedRiskLevel(incomingRiskLabel);
+                    changedPosts.add(existing);
+                    updatedRiskLabels++;
+                } else {
+                    skipped++;
+                }
                 continue;
             }
 
@@ -82,9 +96,14 @@ public class DataImportService {
         }
 
         // 导入后执行分析
+        if (imported > 0 || updatedRiskLabels > 0) {
+            if (!newPosts.isEmpty()) postRepository.saveAll(newPosts);
+            if (!changedPosts.isEmpty()) postRepository.saveAll(changedPosts);
+        }
         if (imported > 0) {
-            postRepository.saveAll(newPosts);
             analysisService.analyzeAllPosts();
+        }
+        if (imported > 0 || updatedRiskLabels > 0) {
             analysisService.aggregateEvents();
         }
 
@@ -93,6 +112,7 @@ public class DataImportService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", total);
         result.put("imported", imported);
+        result.put("updatedRiskLabels", updatedRiskLabels);
         result.put("skipped", skipped);
         result.put("errors", errors);
         return result;
@@ -198,19 +218,18 @@ public class DataImportService {
         riskLevelStats.put("中", 0L);
         riskLevelStats.put("低", 0L);
         for (Post post : allPosts) {
-            String level = post.getRiskLevel();
+            String level = effectiveRiskLevel(post);
             if (level != null && riskLevelStats.containsKey(level)) {
                 riskLevelStats.put(level, riskLevelStats.get(level) + 1);
             }
         }
         stats.put("riskLevelStats", riskLevelStats);
 
-        // 平均风险评分
-        double avgRiskScore = allPosts.stream()
-                .mapToInt(p -> p.getRiskScore() != null ? p.getRiskScore() : 0)
-                .average()
-                .orElse(0.0);
-        stats.put("avgRiskScore", Math.round(avgRiskScore * 100.0) / 100.0);
+        long mediumHighRiskPosts = allPosts.stream()
+            .map(this::effectiveRiskLevel)
+            .filter(level -> "中".equals(level) || "高".equals(level))
+            .count();
+        stats.put("mediumHighRiskPosts", mediumHighRiskPosts);
 
         // 今日新增帖子数
         LocalDateTime today = LocalDateTime.now().withHour(0).withMinute(0).withSecond(0);
@@ -273,6 +292,8 @@ public class DataImportService {
             post.setCommentCount(toInt(item.get("comment_count")));
             post.setLikeCount(toInt(item.get("like_count")));
             post.setViewCount(toInt(item.get("view_count")));
+            post.setProvidedRiskLevel(normalizeRiskLabel(firstValue(
+                item, "ai_risk_level", "risk_level", "riskLevel", "risk_label")));
 
             Object anon = item.get("is_anonymous");
             if (anon instanceof Number) {
@@ -300,5 +321,25 @@ public class DataImportService {
             return ((Number) obj).intValue();
         }
         return 0;
+    }
+
+    private Object firstValue(Map<String, Object> item, String... keys) {
+        for (String key : keys) {
+            Object value = item.get(key);
+            if (value != null && !Objects.toString(value, "").isBlank()) return value;
+        }
+        return null;
+    }
+
+    private String normalizeRiskLabel(Object value) {
+        String label = Objects.toString(value, "").trim();
+        if (label.endsWith("风险")) label = label.substring(0, label.length() - 2);
+        return Set.of("低", "中", "高").contains(label) ? label : null;
+    }
+
+    private String effectiveRiskLevel(Post post) {
+        if (post.getReviewedRiskLevel() != null) return post.getReviewedRiskLevel();
+        if (post.getProvidedRiskLevel() != null) return post.getProvidedRiskLevel();
+        return post.getRiskLevel();
     }
 }

@@ -59,6 +59,28 @@ class AnalysisSettingsServiceTest {
         assertFalse(service.getSettings().containsKey("riskThresholds"));
     }
 
+    @Test
+    void alertRulesAreValidatedAndSurviveReload() {
+        AtomicReference<SystemSetting> stored = new AtomicReference<>();
+        AnalysisSettingsService service =
+            new AnalysisSettingsService(repository(stored), new ObjectMapper());
+        Map<String, Object> payload = settingsPayload();
+        payload.put("alertRules", Map.of(
+            "negativeRatioPercent", 120,
+            "burstWindowHours", 6,
+            "urgentKeywords", List.of("线下行动", "聚集")
+        ));
+        service.update(payload);
+
+        AnalysisSettingsService reloaded =
+            new AnalysisSettingsService(repository(stored), new ObjectMapper());
+        AnalysisSettingsService.AlertRules rules = reloaded.getSnapshot().alertRules();
+
+        assertEquals(100, rules.negativeRatioPercent());
+        assertEquals(6, rules.burstWindowHours());
+        assertEquals(List.of("线下行动", "聚集"), rules.urgentKeywords());
+    }
+
     private Map<String, Object> settingsPayload() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("categories", List.of(

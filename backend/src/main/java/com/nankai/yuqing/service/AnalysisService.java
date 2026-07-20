@@ -584,7 +584,8 @@ public class AnalysisService {
         eventRepository.deleteAll();
 
         Map<String, List<Post>> grouped = allPosts.stream()
-            .filter(p -> p.getSafetyCategory() != null)
+            .filter(p -> p.getSafetyCategory() != null
+                || isAlertRisk(sourceRiskLevel(p)))
             .collect(Collectors.groupingBy(this::eventGroupKey, LinkedHashMap::new, Collectors.toList()));
 
         List<EventEntity> events = new ArrayList<>();
@@ -595,10 +596,12 @@ public class AnalysisService {
                 .thenComparing(p -> safe(p.getCommentCount()) + safe(p.getLikeCount()), Comparator.reverseOrder()));
 
             int maxRisk = posts.stream().mapToInt(p -> safe(p.getRiskScore())).max().orElse(0);
-            if (posts.size() < 2 && maxRisk < 70) continue;
+            String sourceRisk = aggregateRiskLevel(posts, maxRisk);
+            boolean labelRequiresAlert = isAlertRisk(sourceRisk);
+            if (posts.size() < 2 && maxRisk < 70 && !labelRequiresAlert) continue;
 
             int eventScore = calculateEventScore(posts, maxRisk);
-            if (eventScore < 30) continue;
+            if (eventScore < 30 && !labelRequiresAlert) continue;
 
             String id = stableEventId(entry.getKey());
             Post top = posts.get(0);
@@ -606,24 +609,33 @@ public class AnalysisService {
             EventEntity event = new EventEntity();
             event.setId(id);
             event.setTitle(generateEventTitle(top, posts));
-            event.setCategory(top.getSafetyCategory());
+            event.setCategory(Objects.toString(top.getSafetyCategory(), "其他风险"));
             event.setRiskScore(eventScore);
-            event.setRisk(scoreToLevel(eventScore));
+            String eventRiskLevel = aggregateRiskLevel(posts, eventScore);
+            event.setRisk(eventRiskLevel);
             event.setPostCount(posts.size());
 
             int totalViews = posts.stream().mapToInt(p -> safe(p.getViewCount())).sum();
             long negative = posts.stream().filter(p -> "负面".equals(p.getEmotion())).count();
             double negativeRatio = posts.isEmpty() ? 0 : (double) negative / posts.size();
             event.setAffectedRange(generateAffectedRange(totalViews));
-            event.setUrgency(eventScore >= 70 ? "紧急" : eventScore >= 40 ? "关注" : "一般");
+            event.setUrgency("高".equals(eventRiskLevel)
+                ? "紧急" : "中".equals(eventRiskLevel) ? "关注" : "一般");
             event.setEmotionSummary(String.format("负面占比%.0f%%", negativeRatio * 100));
-            event.setSummary(generateEventSummary(top, posts, eventScore));
+            event.setSummary(generateEventSummary(top, posts, eventRiskLevel));
 
             LocalDateTime latest = posts.stream().map(Post::getPublishTime).filter(Objects::nonNull)
                 .max(LocalDateTime::compareTo).orElse(LocalDateTime.now());
             event.setCreatedAt(latest);
-            event.setUpdatedAt(latest);
-            event.setStatus(old != null ? old.getStatus() : eventScore >= 70 ? "待研判" : "已确认");
+            event.setUpdatedAt(old != null && old.getUpdatedAt() != null
+                ? old.getUpdatedAt() : latest);
+            event.setStatus(old != null ? old.getStatus()
+                : "高".equals(eventRiskLevel) ? "待研判" : "已确认");
+            if (old != null) {
+                event.setAssignee(old.getAssignee());
+                event.setDueAt(old.getDueAt());
+                event.setResolution(old.getResolution());
+            }
             events.add(event);
 
             for (Post post : posts) post.setEventId(id);
@@ -638,7 +650,8 @@ public class AnalysisService {
         LocalDate date = post.getPublishTime() == null ? LocalDate.now() : post.getPublishTime().toLocalDate();
         int weekYear = date.get(IsoFields.WEEK_BASED_YEAR);
         int week = date.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
-        return post.getSafetyCategory() + "|" + Objects.toString(post.getTopic(), "综合")
+        return Objects.toString(post.getSafetyCategory(), "其他风险")
+            + "|" + Objects.toString(post.getTopic(), "综合")
             + "|" + weekYear + "-W" + String.format("%02d", week);
     }
 
@@ -680,7 +693,11 @@ public class AnalysisService {
 
     private String generateEventTitle(Post top, List<Post> posts) {
         String title = normalizeDisplay(top.getTitle());
-        if (title.isBlank()) title = Objects.toString(top.getTopic(), top.getSafetyCategory()) + "相关讨论";
+        if (title.isBlank()) {
+            title = Objects.toString(
+                top.getTopic(),
+                Objects.toString(top.getSafetyCategory(), "风险标签")) + "相关讨论";
+        }
         if (title.length() > 28) title = title.substring(0, 28) + "...";
         return title;
     }
@@ -692,7 +709,7 @@ public class AnalysisService {
         return "较小（" + views + "+人次浏览）";
     }
 
-    private String generateEventSummary(Post top, List<Post> posts, int score) {
+    private String generateEventSummary(Post top, List<Post> posts, String riskLevel) {
         long days = posts.stream().map(Post::getPublishTime).filter(Objects::nonNull)
             .map(LocalDateTime::toLocalDate).distinct().count();
         String topic = Objects.toString(top.getTopic(), "综合问题");
@@ -702,10 +719,36 @@ public class AnalysisService {
         int negativeComments = posts.stream().mapToInt(p -> safe(p.getNegativeCommentCount())).sum();
         String commentSummary = analyzedComments == 0 ? "" : String.format(
             "关联分析 %d 条评论，其中负面评论 %d 条。", analyzedComments, negativeComments);
-        return String.format("该事件属于【%s】，细分话题为【%s】，本周期聚合 %d 条、持续 %d 天。%s%s综合风险评分 %d 分，属于%s风险事件。",
-            top.getSafetyCategory(), topic, posts.size(), Math.max(1, days),
+        return String.format("该事件属于【%s】，细分话题为【%s】，本周期聚合 %d 条、持续 %d 天。%s%s当前最终风险标签为%s风险。",
+            Objects.toString(top.getSafetyCategory(), "其他风险"),
+            topic, posts.size(), Math.max(1, days),
             excerpt.isBlank() ? "" : "典型内容：" + excerpt + "。", commentSummary,
-            score, scoreToLevel(score));
+            riskLevel);
+    }
+
+    private String aggregateRiskLevel(List<Post> posts, int fallbackScore) {
+        boolean hasHigh = posts.stream()
+            .map(this::sourceRiskLevel)
+            .anyMatch("高"::equals);
+        if (hasHigh) return "高";
+        boolean hasMedium = posts.stream()
+            .map(this::sourceRiskLevel)
+            .anyMatch("中"::equals);
+        if (hasMedium) return "中";
+        boolean hasLow = posts.stream()
+            .map(this::sourceRiskLevel)
+            .anyMatch("低"::equals);
+        return hasLow ? "低" : scoreToLevel(fallbackScore);
+    }
+
+    private String sourceRiskLevel(Post post) {
+        if (post.getReviewedRiskLevel() != null) return post.getReviewedRiskLevel();
+        return post.getProvidedRiskLevel() != null
+            ? post.getProvidedRiskLevel() : post.getRiskLevel();
+    }
+
+    private boolean isAlertRisk(String level) {
+        return "高".equals(level) || "中".equals(level);
     }
 
     public List<Map<String, Object>> getRiskReasons(EventEntity event, List<Post> posts) {
@@ -740,6 +783,146 @@ public class AnalysisService {
                 maxAdjustment > 0 ? "单帖最高+" + maxAdjustment + "分" : "+0分"));
         }
         return reasons;
+    }
+
+    /**
+     * 使用可配置规则返回事件实际命中的预警依据。
+     * 预警规则与核心分类评分分离，调整预警敏感度不会改变原始分类结果。
+     */
+    public List<Map<String, Object>> getAlertTriggers(EventEntity event, List<Post> posts) {
+        AnalysisSettingsService.AlertRules rules = runtimeSettings().alertRules();
+        List<Map<String, Object>> triggers = new ArrayList<>();
+
+        if ("高".equals(event.getRisk()) || "中".equals(event.getRisk())) {
+            Map<String, Object> labelTrigger = new LinkedHashMap<>();
+            labelTrigger.put("code", "risk_label");
+            labelTrigger.put("reason", "风险标签判定");
+            labelTrigger.put("detail", "当前最终判定为" + event.getRisk() + "风险");
+            labelTrigger.put("actual", event.getRisk() + "风险");
+            labelTrigger.put("threshold", "中风险或高风险");
+            labelTrigger.put("unit", "");
+            triggers.add(labelTrigger);
+        }
+
+        int postCount = posts.size();
+        if (postCount >= rules.minPostCount()) {
+            triggers.add(trigger(
+                "discussion_volume", "同类讨论集中",
+                "已聚合 " + postCount + " 条相关帖子",
+                postCount, rules.minPostCount(), "条"));
+        }
+
+        long negativeCount = posts.stream()
+            .filter(post -> "负面".equals(post.getEmotion()))
+            .count();
+        int negativeRatio = posts.isEmpty()
+            ? 0 : (int) Math.round(negativeCount * 100.0 / posts.size());
+        if (rules.negativeRatioPercent() > 0
+            && negativeRatio >= rules.negativeRatioPercent()) {
+            triggers.add(trigger(
+                "negative_ratio", "负面情绪集中",
+                "负面帖子占比 " + negativeRatio + "%",
+                negativeRatio, rules.negativeRatioPercent(), "%"));
+        }
+
+        int interactions = posts.stream()
+            .mapToInt(post -> safe(post.getCommentCount()) + safe(post.getLikeCount()))
+            .sum();
+        if (rules.minInteractions() > 0 && interactions >= rules.minInteractions()) {
+            triggers.add(trigger(
+                "interaction_heat", "互动热度较高",
+                "评论与点赞合计 " + interactions + " 次",
+                interactions, rules.minInteractions(), "次"));
+        }
+
+        int views = posts.stream().mapToInt(post -> safe(post.getViewCount())).sum();
+        if (rules.minViews() > 0 && views >= rules.minViews()) {
+            triggers.add(trigger(
+                "view_reach", "传播范围扩大",
+                "累计浏览 " + views + " 人次",
+                views, rules.minViews(), "人次"));
+        }
+
+        List<LocalDateTime> publishTimes = posts.stream()
+            .map(Post::getPublishTime)
+            .filter(Objects::nonNull)
+            .sorted()
+            .toList();
+        if (!publishTimes.isEmpty()) {
+            LocalDateTime latest = publishTimes.get(publishTimes.size() - 1);
+            LocalDateTime windowStart = latest.minusHours(rules.burstWindowHours());
+            int burstCount = (int) publishTimes.stream()
+                .filter(time -> !time.isBefore(windowStart))
+                .count();
+            if (burstCount >= rules.burstPostCount()) {
+                triggers.add(trigger(
+                    "short_term_burst", "短时间讨论突增",
+                    "最近 " + rules.burstWindowHours() + " 小时内出现 "
+                        + burstCount + " 条相关帖子",
+                    burstCount, rules.burstPostCount(), "条"));
+            }
+        }
+
+        Map.Entry<String, Long> repeatedLocation = posts.stream()
+            .map(Post::getLocation)
+            .filter(location -> location != null && !location.isBlank())
+            .map(String::trim)
+            .filter(location -> !Set.of(
+                "未明确", "未知", "暂无", "其他", "无", "-").contains(location))
+            .collect(Collectors.groupingBy(
+                location -> location, LinkedHashMap::new, Collectors.counting()))
+            .entrySet().stream()
+            .max(Map.Entry.comparingByValue())
+            .orElse(null);
+        if (repeatedLocation != null
+            && repeatedLocation.getValue() >= rules.repeatedLocationPostCount()) {
+            triggers.add(trigger(
+                "repeated_location", "同一地点重复反映",
+                repeatedLocation.getKey() + " 被连续提及 "
+                    + repeatedLocation.getValue() + " 次",
+                repeatedLocation.getValue().intValue(),
+                rules.repeatedLocationPostCount(), "次"));
+        }
+
+        String combinedText = posts.stream()
+            .map(post -> normalizeDisplay(
+                Objects.toString(post.getTitle(), "") + " "
+                    + Objects.toString(post.getContent(), "") + " "
+                    + Objects.toString(post.getTopic(), "")))
+            .collect(Collectors.joining(" "))
+            .toLowerCase(Locale.ROOT);
+        List<String> matchedKeywords = rules.urgentKeywords().stream()
+            .filter(combinedText::contains)
+            .distinct()
+            .limit(8)
+            .toList();
+        if (!matchedKeywords.isEmpty()) {
+            Map<String, Object> keywordTrigger = new LinkedHashMap<>();
+            keywordTrigger.put("code", "urgent_keyword");
+            keywordTrigger.put("reason", "高危信号词命中");
+            keywordTrigger.put("detail", "命中：" + String.join("、", matchedKeywords));
+            keywordTrigger.put("actual", matchedKeywords.size());
+            keywordTrigger.put("threshold", 1);
+            keywordTrigger.put("unit", "个");
+            triggers.add(keywordTrigger);
+        }
+        return triggers;
+    }
+
+    private Map<String, Object> trigger(String code,
+                                        String reason,
+                                        String detail,
+                                        int actual,
+                                        int threshold,
+                                        String unit) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("code", code);
+        result.put("reason", reason);
+        result.put("detail", detail);
+        result.put("actual", actual);
+        result.put("threshold", threshold);
+        result.put("unit", unit);
+        return result;
     }
 
     private String volumePoints(int size) {

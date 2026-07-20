@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.*;
 
-/** 安全议题分类与自定义规则的持久化、校验和运行时快照。 */
+/** 安全议题分类、自定义规则与预警规则的持久化、校验和运行时快照。 */
 @Service
 public class AnalysisSettingsService {
 
@@ -24,14 +24,35 @@ public class AnalysisSettingsService {
         "宿舍设施问题", "食堂与餐饮问题", "突发事件", "其他"
     );
 
+    public record AlertRules(
+        int minPostCount,
+        int negativeRatioPercent,
+        int minInteractions,
+        int minViews,
+        int burstWindowHours,
+        int burstPostCount,
+        int repeatedLocationPostCount,
+        List<String> urgentKeywords
+    ) {
+        public static AlertRules defaults() {
+            return new AlertRules(
+                4, 35, 50, 5000, 2, 4, 3,
+                List.of("聚集", "线下行动", "报警", "起火", "爆炸", "持刀",
+                    "跳楼", "轻生", "食物中毒", "救护车")
+            );
+        }
+    }
+
     public record Snapshot(List<String> categories,
-                           Map<String, List<String>> categoryRules) {
+                           Map<String, List<String>> categoryRules,
+                           AlertRules alertRules) {
         public boolean categoryEnabled(String category) {
             return categories.contains(category);
         }
 
         public static Snapshot defaults() {
-            return new Snapshot(List.copyOf(DEFAULT_CATEGORIES), Map.of());
+            return new Snapshot(
+                List.copyOf(DEFAULT_CATEGORIES), Map.of(), AlertRules.defaults());
         }
     }
 
@@ -59,6 +80,7 @@ public class AnalysisSettingsService {
         result.put("categories", snapshot.categories());
         result.put("categoryRules", snapshot.categoryRules());
         result.put("builtinCategories", BUILTIN_CATEGORIES);
+        result.put("alertRules", alertRulesMap(snapshot.alertRules()));
         return result;
     }
 
@@ -67,12 +89,15 @@ public class AnalysisSettingsService {
         Snapshot current = getSnapshot();
         List<String> categories = normalizeCategories(body.get("categories"), current.categories());
         Map<String, List<String>> rules = normalizeRules(body.get("categoryRules"), categories, current.categoryRules());
-        Snapshot next = new Snapshot(List.copyOf(categories), immutableRules(rules));
+        AlertRules alertRules = normalizeAlertRules(body.get("alertRules"), current.alertRules());
+        Snapshot next = new Snapshot(
+            List.copyOf(categories), immutableRules(rules), alertRules);
 
         try {
             Map<String, Object> stored = new LinkedHashMap<>();
             stored.put("categories", categories);
             stored.put("categoryRules", rules);
+            stored.put("alertRules", alertRulesMap(alertRules));
             String json = objectMapper.writeValueAsString(stored);
             SystemSetting entity = repository.findById(SETTINGS_KEY)
                 .orElseGet(() -> new SystemSetting(SETTINGS_KEY, json));
@@ -93,10 +118,68 @@ public class AnalysisSettingsService {
             Map<String, Object> value = objectMapper.readValue(stored.get().getValue(), new TypeReference<>() {});
             List<String> categories = normalizeCategories(value.get("categories"), DEFAULT_CATEGORIES);
             Map<String, List<String>> rules = normalizeRules(value.get("categoryRules"), categories, Map.of());
-            return new Snapshot(List.copyOf(categories), immutableRules(rules));
+            AlertRules alertRules = normalizeAlertRules(
+                value.get("alertRules"), AlertRules.defaults());
+            return new Snapshot(
+                List.copyOf(categories), immutableRules(rules), alertRules);
         } catch (Exception ignored) {
             return Snapshot.defaults();
         }
+    }
+
+    private AlertRules normalizeAlertRules(Object raw, AlertRules fallback) {
+        if (!(raw instanceof Map<?, ?> source)) return fallback;
+        return new AlertRules(
+            number(source.get("minPostCount"), fallback.minPostCount(), 1, 1000),
+            number(source.get("negativeRatioPercent"), fallback.negativeRatioPercent(), 0, 100),
+            number(source.get("minInteractions"), fallback.minInteractions(), 0, 1_000_000),
+            number(source.get("minViews"), fallback.minViews(), 0, 10_000_000),
+            number(source.get("burstWindowHours"), fallback.burstWindowHours(), 1, 168),
+            number(source.get("burstPostCount"), fallback.burstPostCount(), 2, 1000),
+            number(source.get("repeatedLocationPostCount"), fallback.repeatedLocationPostCount(), 2, 1000),
+            normalizeKeywords(source.get("urgentKeywords"), fallback.urgentKeywords())
+        );
+    }
+
+    private int number(Object raw, int fallback, int min, int max) {
+        int value;
+        if (raw instanceof Number number) {
+            value = number.intValue();
+        } else {
+            try {
+                value = Integer.parseInt(Objects.toString(raw, ""));
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private List<String> normalizeKeywords(Object raw, List<String> fallback) {
+        if (raw == null) return List.copyOf(fallback);
+        Collection<?> values = raw instanceof Collection<?> collection
+            ? collection
+            : Arrays.asList(Objects.toString(raw, "").split("[,，]"));
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        for (Object value : values) {
+            String keyword = Objects.toString(value, "").trim().toLowerCase(Locale.ROOT);
+            if (keyword.length() >= 2 && keyword.length() <= 30) result.add(keyword);
+            if (result.size() >= 50) break;
+        }
+        return result.isEmpty() ? List.copyOf(fallback) : List.copyOf(result);
+    }
+
+    private Map<String, Object> alertRulesMap(AlertRules rules) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("minPostCount", rules.minPostCount());
+        result.put("negativeRatioPercent", rules.negativeRatioPercent());
+        result.put("minInteractions", rules.minInteractions());
+        result.put("minViews", rules.minViews());
+        result.put("burstWindowHours", rules.burstWindowHours());
+        result.put("burstPostCount", rules.burstPostCount());
+        result.put("repeatedLocationPostCount", rules.repeatedLocationPostCount());
+        result.put("urgentKeywords", rules.urgentKeywords());
+        return result;
     }
 
     private List<String> normalizeCategories(Object raw, List<String> fallback) {

@@ -65,6 +65,11 @@ async function logout() {
     router.replace('/login')
   }
 }
+
+function isMenuActive(path: string) {
+  const basePath = `/${path}`
+  return route.path === basePath || route.path.startsWith(`${basePath}/`)
+}
 </script>
 
 <template>
@@ -122,14 +127,14 @@ async function logout() {
           @click="navigate(`/${item.path}`)"
           :class="[
             'flex items-center justify-center gap-3 px-4 py-3.5 cursor-pointer transition-all duration-200 mb-1.5 group relative',
-            route.path === `/${item.path}`
+            isMenuActive(item.path)
               ? 'bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-lg shadow-brand-600/30'
               : 'text-slate-400 hover:bg-white/5 hover:text-white',
           ]"
         >
           <!-- 激活态左侧指示条 -->
           <span
-            v-if="route.path === `/${item.path}`"
+            v-if="isMenuActive(item.path)"
             class="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-accent-400 rounded-r-full"
           ></span>
           <span class="flex-shrink-0 w-6 flex items-center justify-center">
@@ -153,7 +158,7 @@ async function logout() {
         class="app-header relative h-16 flex items-center justify-between flex-shrink-0 border border-white/60 bg-white/70 backdrop-blur-xl shadow-sm shadow-slate-200/50"
         :style="{
           paddingLeft: isMobile ? '20px' : '80px',
-          paddingRight: isMobile ? '20px' : '48px',
+          paddingRight: isMobile ? '16px' : 'var(--layout-gutter)',
         }"
       >
         <button
@@ -220,7 +225,7 @@ async function logout() {
         </div>
       </header>
 
-      <main class="flex-1 overflow-auto py-6 px-4 md:px-12">
+      <main class="app-main flex-1 overflow-auto">
         <router-view v-slot="{ Component }">
           <Transition name="page" mode="out-in">
             <component :is="Component" />
@@ -269,9 +274,19 @@ async function logout() {
 }
 
 .app-header {
-  /* 与桌面端主体内容的起始位置保持一致，且不依赖构建时生成的工具类 */
+  /* 左侧为折叠按钮预留空间，右侧与页面统一使用布局边距 */
   padding-left: 80px;
-  padding-right: 48px;
+  padding-right: var(--layout-gutter);
+}
+
+.app-main {
+  padding: var(--layout-section-gap) var(--layout-gutter);
+}
+
+@media (max-width: 767px) {
+  .app-main {
+    padding: 16px;
+  }
 }
 
 /* 路由切换过渡动画（补充 style.css 中未定义的 leave 样式） */

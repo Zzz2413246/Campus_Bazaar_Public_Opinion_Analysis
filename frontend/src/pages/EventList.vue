@@ -11,12 +11,12 @@ const router = useRouter()
 const loading = ref(false)
 
 const events = ref([
-  { id: '1', risk: '高', title: '西门快递诈骗集中事件', category: '诈骗', posts: 45, growth: '+15/天', time: '7月12日', status: '处理中' },
-  { id: '2', risk: '高', title: '21栋宿舍电瓶车充电起火', category: '消防', posts: 32, growth: '+8/天', time: '7月13日', status: '待研判' },
-  { id: '3', risk: '中', title: '二食堂卫生投诉集中', category: '食堂', posts: 28, growth: '+5/天', time: '7月11日', status: '处理中' },
-  { id: '4', risk: '中', title: '教学楼区域电动车乱停', category: '交通', posts: 18, growth: '+3/天', time: '7月12日', status: '已确认' },
-  { id: '5', risk: '低', title: '图书馆空调温度过低', category: '设施', posts: 5, growth: '稳定', time: '7月13日', status: '已确认' },
-  { id: '6', risk: '低', title: '操场夜间照明不足', category: '设施', posts: 8, growth: '稳定', time: '7月10日', status: '已忽略' },
+  { id: '1', risk: '高', title: '西门快递诈骗集中事件', category: '诈骗', posts: 45, growth: '+15/天', time: '7月12日', status: '处理中', assignee: '保卫处', dueAt: '', overdue: false },
+  { id: '2', risk: '高', title: '21栋宿舍电瓶车充电起火', category: '消防', posts: 32, growth: '+8/天', time: '7月13日', status: '待核实', assignee: '', dueAt: '', overdue: false },
+  { id: '3', risk: '中', title: '二食堂卫生投诉集中', category: '食堂', posts: 28, growth: '+5/天', time: '7月11日', status: '处理中', assignee: '后勤处', dueAt: '', overdue: false },
+  { id: '4', risk: '中', title: '教学楼区域电动车乱停', category: '交通', posts: 18, growth: '+3/天', time: '7月12日', status: '持续观察', assignee: '', dueAt: '', overdue: false },
+  { id: '5', risk: '低', title: '图书馆空调温度过低', category: '设施', posts: 5, growth: '稳定', time: '7月13日', status: '持续观察', assignee: '', dueAt: '', overdue: false },
+  { id: '6', risk: '低', title: '操场夜间照明不足', category: '设施', posts: 8, growth: '稳定', time: '7月10日', status: '误报', assignee: '', dueAt: '', overdue: false },
 ])
 
 // 筛选条件变量
@@ -39,7 +39,22 @@ const filteredEvents = computed(() => {
 })
 
 const statusBadge = (s: string) =>
-  s === '待研判' ? 'badge-warn' : s === '处理中' ? 'badge-info' : s === '已确认' ? 'badge-success' : 'badge-neutral'
+  s === '待核实' ? 'badge-warn'
+    : s === '处理中' ? 'badge-info'
+      : s === '已解决' ? 'badge-success'
+        : 'badge-neutral'
+
+function formatDueAt(value: string) {
+  if (!value) return '未设置'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 
 function goDetail(id: string) { router.push(`/events/${id}`) }
 
@@ -63,7 +78,10 @@ async function loadEvents() {
         posts: e.posts ?? e.postCount ?? e.count ?? 0,
         growth: e.growth ?? e.growthRate ?? '稳定',
         time: e.time ?? e.date ?? e.createdAt ?? '',
-        status: e.status ?? '待研判',
+        status: e.status ?? '待核实',
+        assignee: e.assignee ?? '',
+        dueAt: e.dueAt ?? '',
+        overdue: Boolean(e.overdue),
       }))
     }
   } catch (err) {
@@ -106,7 +124,12 @@ onMounted(() => {
         <option v-for="category in categoryOptions" :key="category" :value="category">{{ category }}</option>
       </select>
       <select class="select" v-model="filterStatus">
-        <option value="">全部状态</option><option value="待研判">待研判</option><option value="处理中">处理中</option><option value="已确认">已确认</option><option value="已忽略">已忽略</option>
+        <option value="">全部状态</option>
+        <option value="待核实">待核实</option>
+        <option value="处理中">处理中</option>
+        <option value="持续观察">持续观察</option>
+        <option value="已解决">已解决</option>
+        <option value="误报">误报</option>
       </select>
       <div class="flex-1"></div>
       <RefreshButton :on-refresh="loadEvents" />
@@ -117,7 +140,7 @@ onMounted(() => {
     <div class="card overflow-x-auto">
       <!-- 表格空状态 -->
       <EmptyState v-if="!filteredEvents.length" text="暂无事件" />
-      <table v-else class="table-base table-row-hover min-w-[1000px]">
+      <table v-else class="table-base table-row-hover min-w-[1180px]">
         <thead>
           <tr>
             <th class="w-36">风险等级</th>
@@ -127,6 +150,8 @@ onMounted(() => {
             <th class="w-32">增长速度</th>
             <th class="w-28">发现时间</th>
             <th class="w-28">状态</th>
+            <th class="w-28">负责人</th>
+            <th class="w-36">计划完成</th>
             <th class="w-28">操作</th>
           </tr>
         </thead>
@@ -149,7 +174,15 @@ onMounted(() => {
               <span :class="e.growth !== '稳定' ? 'text-rose-500 font-medium' : 'text-slate-500'">{{ e.growth }}</span>
             </td>
             <td class="text-slate-500 text-xs">{{ e.time }}</td>
-            <td><span :class="['badge', statusBadge(e.status)]">{{ e.status }}</span></td>
+            <td>
+              <span :class="['badge', e.overdue ? 'badge-high' : statusBadge(e.status)]">
+                {{ e.overdue ? '已超时' : e.status }}
+              </span>
+            </td>
+            <td class="text-slate-600">{{ e.assignee || '待指派' }}</td>
+            <td :class="e.overdue ? 'text-rose-600 font-medium' : 'text-slate-500'" class="text-xs">
+              {{ formatDueAt(e.dueAt) }}
+            </td>
             <td>
               <button @click.stop="goDetail(e.id)" class="btn-link">查看详情 →</button>
             </td>

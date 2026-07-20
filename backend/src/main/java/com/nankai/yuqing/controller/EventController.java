@@ -1,13 +1,16 @@
 package com.nankai.yuqing.controller;
 
 import com.nankai.yuqing.model.EventEntity;
+import com.nankai.yuqing.model.EventAction;
 import com.nankai.yuqing.model.Post;
+import com.nankai.yuqing.repository.EventActionRepository;
 import com.nankai.yuqing.repository.EventRepository;
 import com.nankai.yuqing.repository.PostRepository;
 import com.nankai.yuqing.service.AnalysisService;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.format.DateTimeFormatter;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /**
@@ -18,13 +21,16 @@ import java.util.*;
 public class EventController {
 
     private final EventRepository eventRepository;
+    private final EventActionRepository eventActionRepository;
     private final PostRepository postRepository;
     private final AnalysisService analysisService;
 
     public EventController(EventRepository eventRepository,
+                           EventActionRepository eventActionRepository,
                            PostRepository postRepository,
                            AnalysisService analysisService) {
         this.eventRepository = eventRepository;
+        this.eventActionRepository = eventActionRepository;
         this.postRepository = postRepository;
         this.analysisService = analysisService;
     }
@@ -47,7 +53,10 @@ public class EventController {
             // 真实计算日均增长：基于关联帖子的时间跨度
             m.put("growth", "+" + calcDailyGrowth(e.getId(), e.getPostCount()) + "/天");
             m.put("time", e.getCreatedAt() != null ? e.getCreatedAt().format(fmt) : "");
-            m.put("status", e.getStatus());
+            m.put("status", normalizeExistingStatus(e.getStatus()));
+            m.put("assignee", e.getAssignee());
+            m.put("dueAt", e.getDueAt());
+            m.put("overdue", isOverdue(e));
             result.add(m);
         }
         return result;
@@ -71,8 +80,12 @@ public class EventController {
         result.put("category", event.getCategory());
         result.put("risk", event.getRisk());
         result.put("riskScore", event.getRiskScore());
-        result.put("status", event.getStatus());
+        result.put("status", normalizeExistingStatus(event.getStatus()));
         result.put("summary", event.getSummary());
+        result.put("assignee", event.getAssignee());
+        result.put("dueAt", event.getDueAt());
+        result.put("resolution", event.getResolution());
+        result.put("overdue", isOverdue(event));
 
         // 核心指标
         Map<String, Object> stats = new LinkedHashMap<>();
@@ -86,6 +99,10 @@ public class EventController {
 
         // 风险判断依据
         result.put("riskReasons", analysisService.getRiskReasons(event, relatedPosts));
+        List<Map<String, Object>> alertTriggers =
+            analysisService.getAlertTriggers(event, relatedPosts);
+        result.put("alertTriggers", alertTriggers);
+        result.put("alertTriggered", !alertTriggers.isEmpty());
 
         // 相关帖子
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("HH:mm");
@@ -121,19 +138,24 @@ public class EventController {
         }
         result.put("trend", trend);
 
-        // 处置记录（示例）
+        // 处置记录
         List<Map<String, Object>> actions = new ArrayList<>();
-        Map<String, Object> a1 = new LinkedHashMap<>();
-        a1.put("time", "管理员 · " + (event.getCreatedAt() != null ? event.getCreatedAt().format(fmt) : ""));
-        a1.put("action", "事件已创建");
-        a1.put("desc", "系统自动聚合识别");
-        actions.add(a1);
-        if (!"待研判".equals(event.getStatus())) {
-            Map<String, Object> a2 = new LinkedHashMap<>();
-            a2.put("time", "管理员 · 已确认");
-            a2.put("action", "风险等级确认");
-            a2.put("desc", "风险等级：" + event.getRisk());
-            actions.add(a2);
+        for (EventAction action : eventActionRepository.findByEventIdOrderByCreatedAtDesc(id)) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", action.getId());
+            item.put("operator", action.getOperatorName());
+            item.put("time", action.getCreatedAt());
+            item.put("action", action.getActionName());
+            item.put("desc", action.getDescription());
+            actions.add(item);
+        }
+        if (actions.isEmpty()) {
+            Map<String, Object> created = new LinkedHashMap<>();
+            created.put("operator", "系统");
+            created.put("time", event.getCreatedAt());
+            created.put("action", "事件已创建");
+            created.put("desc", "系统自动聚合识别");
+            actions.add(created);
         }
         result.put("actions", actions);
 
@@ -151,13 +173,61 @@ public class EventController {
         }
         String status = body.get("status");
         String risk = body.get("risk");
+        String assignee = body.get("assignee");
+        String dueAt = body.get("dueAt");
+        String remark = body.get("remark");
+        String operator = body.getOrDefault("operator", "管理员");
+
+        Set<String> allowedStatuses = Set.of("待核实", "处理中", "持续观察", "已解决", "误报");
+        if (status != null && !allowedStatuses.contains(status)) {
+            return Map.of("error", "无效的处置状态");
+        }
         if (status != null) event.setStatus(status);
         if (risk != null) {
             event.setRisk(risk);
         }
-        event.setUpdatedAt(java.time.LocalDateTime.now());
+        if (assignee != null) event.setAssignee(assignee.trim());
+        if (dueAt != null) {
+            event.setDueAt(dueAt.isBlank() ? null : LocalDateTime.parse(dueAt));
+        }
+        if (remark != null && !remark.isBlank()) event.setResolution(remark.trim());
+        event.setUpdatedAt(LocalDateTime.now());
         eventRepository.save(event);
-        return Map.of("success", true);
+
+        EventAction action = new EventAction();
+        action.setEventId(id);
+        action.setOperatorName(operator);
+        action.setActionName(status == null ? "更新事件信息" : "状态更新为" + status);
+        StringBuilder description = new StringBuilder();
+        if (risk != null) description.append("风险等级：").append(risk);
+        if (assignee != null && !assignee.isBlank()) {
+            if (!description.isEmpty()) description.append("；");
+            description.append("负责人：").append(assignee.trim());
+        }
+        if (remark != null && !remark.isBlank()) {
+            if (!description.isEmpty()) description.append("；");
+            description.append(remark.trim());
+        }
+        action.setDescription(description.isEmpty() ? "处置信息已更新" : description.toString());
+        action.setCreatedAt(LocalDateTime.now());
+        eventActionRepository.save(action);
+
+        return Map.of("success", true, "updatedAt", event.getUpdatedAt());
+    }
+
+    private boolean isOverdue(EventEntity event) {
+        return event.getDueAt() != null
+            && event.getDueAt().isBefore(LocalDateTime.now())
+            && !Set.of("已解决", "误报").contains(normalizeExistingStatus(event.getStatus()));
+    }
+
+    private String normalizeExistingStatus(String status) {
+        if (status == null || status.isBlank() || "未处理".equals(status) || "待研判".equals(status)) {
+            return "待核实";
+        }
+        if ("已确认".equals(status)) return "持续观察";
+        if ("已忽略".equals(status)) return "误报";
+        return status;
     }
 
     private String emotionEmoji(String emotion) {
