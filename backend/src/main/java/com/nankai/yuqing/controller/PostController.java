@@ -50,12 +50,16 @@ public class PostController {
             blankToNull(keyword), blankToNull(category), blankToNull(emotion), blankToNull(source),
             blankToNull(reviewStatus), safeSortBy,
             PageRequest.of(safePage - 1, safeSize));
+        List<Post> posts = resultPage.getContent();
+        Map<String, Long> actualCommentCounts = actualCommentCounts(posts);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", resultPage.getTotalElements());
         result.put("page", safePage);
         result.put("size", safeSize);
-        result.put("data", resultPage.getContent().stream().map(this::toMap).toList());
+        result.put("data", posts.stream()
+            .map(post -> toMap(post, actualCommentCounts.getOrDefault(post.getId(), 0L)))
+            .toList());
         return result;
     }
 
@@ -77,7 +81,7 @@ public class PostController {
         Page<PostComment> comments = commentRepository.findByThreadIdOrderByPublishTimeAsc(
             id, PageRequest.of(safePage - 1, safeSize));
 
-        Map<String, Object> result = toMap(post);
+        Map<String, Object> result = toMap(post, comments.getTotalElements());
         Map<String, Object> commentResult = new LinkedHashMap<>();
         commentResult.put("page", safePage);
         commentResult.put("size", safeSize);
@@ -196,7 +200,7 @@ public class PostController {
                 post.setReviewedAt(null);
                 postRepository.save(post);
                 analysisService.aggregateEvents();
-                return toMap(post);
+                return toMap(post, commentRepository.countByThreadId(post.getId()));
             }
             default -> {
                 return Map.of("error", "无效的复核操作");
@@ -208,7 +212,7 @@ public class PostController {
         post.setReviewedAt(LocalDateTime.now());
         postRepository.save(post);
         analysisService.aggregateEvents();
-        return toMap(post);
+        return toMap(post, commentRepository.countByThreadId(post.getId()));
     }
 
     private String defaultString(String value, String fallback) {
@@ -232,7 +236,17 @@ public class PostController {
         return result;
     }
 
-    private Map<String, Object> toMap(Post p) {
+    private Map<String, Long> actualCommentCounts(List<Post> posts) {
+        if (posts.isEmpty()) return Map.of();
+        List<String> ids = posts.stream().map(Post::getId).toList();
+        Map<String, Long> counts = new HashMap<>();
+        for (Object[] row : commentRepository.countByThreadIds(ids)) {
+            counts.put(String.valueOf(row[0]), ((Number) row[1]).longValue());
+        }
+        return counts;
+    }
+
+    private Map<String, Object> toMap(Post p, long actualCommentCount) {
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", p.getId());
@@ -242,7 +256,9 @@ public class PostController {
         m.put("authorAvatar", p.getAuthorAvatar());
         m.put("publishTime", p.getPublishTime() != null ? p.getPublishTime().format(fmt) : "");
         m.put("categoryName", p.getCategoryName());
-        m.put("commentCount", p.getCommentCount());
+        // 页面展示以本地实际关联的评论行为准；抓取时声明值单独保留用于排查数据质量。
+        m.put("commentCount", actualCommentCount);
+        m.put("sourceCommentCount", p.getCommentCount() == null ? 0 : p.getCommentCount());
         m.put("likeCount", p.getLikeCount());
         m.put("viewCount", p.getViewCount());
         m.put("isAnonymous", p.getIsAnonymous());

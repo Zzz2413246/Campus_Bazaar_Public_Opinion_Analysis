@@ -5,6 +5,7 @@ import * as echarts from 'echarts'
 const props = defineProps<{
   option: echarts.EChartsOption
   height?: string
+  description?: string
 }>()
 
 const chartEl = ref<HTMLDivElement>()
@@ -74,6 +75,12 @@ onBeforeUnmount(() => {
       <span>图表加载失败</span>
     </div>
     <!-- 正常图表 -->
-    <div ref="chartEl" v-show="!loading && !error" class="w-full h-full"></div>
+    <div
+      ref="chartEl"
+      v-show="!loading && !error"
+      class="w-full h-full"
+      role="img"
+      :aria-label="description || '数据可视化图表'"
+    ></div>
   </div>
 </template>

@@ -1,20 +1,27 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { postApi, settingsApi } from '@/utils/api'
 import { toast } from '@/utils/toast'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(false)
-const searchKeyword = ref('')
-const filterCategory = ref('')
-const filterEmotion = ref('')
-const filterSource = ref('')
-const filterReviewStatus = ref('')
-const sortBy = ref<'latest' | 'risk' | 'heat'>('latest')
+const searchKeyword = ref(String(route.query.keyword || ''))
+const filterCategory = ref(String(route.query.category || ''))
+const filterEmotion = ref(String(route.query.emotion || ''))
+const filterSource = ref(String(route.query.source || ''))
+const filterReviewStatus = ref(
+  ['待复核', '已确认', '已修正', '无关内容'].includes(String(route.query.reviewStatus || ''))
+    ? String(route.query.reviewStatus) : '',
+)
+const initialSort = String(route.query.sortBy || 'latest')
+const sortBy = ref<'latest' | 'risk' | 'heat'>(
+  initialSort === 'risk' || initialSort === 'heat' ? initialSort : 'latest',
+)
 const selectedIds = ref<Set<string>>(new Set())
 const expandedIds = ref<Set<string>>(new Set())
 const batchMode = ref<'confirm' | 'irrelevant' | null>(null)
@@ -38,8 +45,10 @@ const savedPresets = ref<FilterPreset[]>([])
 
 const posts = ref<any[]>([])
 const total = ref(0)
-const page = ref(1)
+const page = ref(Math.max(1, Number(route.query.page || 1)))
 const size = ref(20)
+let requestController: AbortController | null = null
+let filterTimer: ReturnType<typeof setTimeout> | null = null
 const categoryOptions = ref<string[]>([
   '诈骗与财产安全', '治安与人身安全', '消防与用电安全', '校园交通安全',
   '宿舍设施问题', '食堂与餐饮问题', '突发事件', '其他',
@@ -84,6 +93,9 @@ function mapPost(p: any) {
 }
 
 async function loadPosts() {
+  requestController?.abort()
+  requestController = new AbortController()
+  const controller = requestController
   loading.value = true
   try {
     const res: any = await postApi.list({
@@ -95,7 +107,7 @@ async function loadPosts() {
       sortBy: sortBy.value,
       page: page.value,
       size: size.value,
-    })
+    }, controller.signal)
     const d = unwrap(res)
     // 后端返回 { total, page, size, data: [...] }
     if (d && typeof d === 'object' && Array.isArray(d.data)) {
@@ -106,22 +118,38 @@ async function loadPosts() {
       total.value = d.length
     }
   } catch (err) {
+    if ((err as any)?.code === 'ERR_CANCELED' || (err as any)?.name === 'CanceledError') return
     console.warn('帖子数据加载失败', err)
   } finally {
-    loading.value = false
+    if (requestController === controller) loading.value = false
   }
+}
+
+function syncFiltersToUrl() {
+  const query: Record<string, string> = {}
+  if (searchKeyword.value) query.keyword = searchKeyword.value
+  if (filterCategory.value) query.category = filterCategory.value
+  if (filterEmotion.value) query.emotion = filterEmotion.value
+  if (filterSource.value) query.source = filterSource.value
+  if (filterReviewStatus.value) query.reviewStatus = filterReviewStatus.value
+  if (sortBy.value !== 'latest') query.sortBy = sortBy.value
+  if (page.value > 1) query.page = String(page.value)
+  router.replace({ query })
 }
 
 // 筛选条件变化时重置到第1页并重新加载
 watch([searchKeyword, filterCategory, filterEmotion, filterSource, filterReviewStatus, sortBy], () => {
   page.value = 1
   selectedIds.value = new Set()
-  loadPosts()
+  syncFiltersToUrl()
+  if (filterTimer) clearTimeout(filterTimer)
+  filterTimer = setTimeout(loadPosts, 300)
 })
 
 function goPage(p: number) {
   if (p < 1 || p > totalPages.value) return
   page.value = p
+  syncFiltersToUrl()
   loadPosts()
 }
 
@@ -278,6 +306,11 @@ onMounted(() => {
   loadCategories()
 })
 
+onUnmounted(() => {
+  requestController?.abort()
+  if (filterTimer) clearTimeout(filterTimer)
+})
+
 const emotionIcon = (e: string) => e.includes('负面') ? 'anger' : e.includes('中性') ? 'meh' : 'smile'
 const emotionBadge = (e: string) => e.includes('负面') ? 'badge-high' : e.includes('中性') ? 'badge-neutral' : 'badge-success'
 const reviewBadge = (status: string) =>
@@ -429,16 +462,16 @@ const riskBadge = (risk: string) =>
 
     <!-- 分页 -->
     <div v-if="totalPages > 1" class="flex items-center justify-center gap-1.5">
-      <span class="page-btn" :class="{ 'opacity-40 pointer-events-none': page <= 1 }" @click="goPage(page - 1)">上一页</span>
+      <button type="button" class="page-btn" :disabled="page <= 1" :class="{ 'opacity-40': page <= 1 }" @click="goPage(page - 1)">上一页</button>
       <template v-for="(p, i) in pageNumbers" :key="i">
         <span v-if="p === '...'" class="page-btn text-slate-400 border-transparent bg-transparent">...</span>
-        <span v-else class="page-btn" :class="{ 'page-btn-active': p === page }" @click="goPage(p as number)">{{ p }}</span>
+        <button v-else type="button" class="page-btn" :aria-current="p === page ? 'page' : undefined" :class="{ 'page-btn-active': p === page }" @click="goPage(p as number)">{{ p }}</button>
       </template>
-      <span class="page-btn" :class="{ 'opacity-40 pointer-events-none': page >= totalPages }" @click="goPage(page + 1)">下一页</span>
+      <button type="button" class="page-btn" :disabled="page >= totalPages" :class="{ 'opacity-40': page >= totalPages }" @click="goPage(page + 1)">下一页</button>
     </div>
 
     <Teleport to="body">
-      <div v-if="batchMode" class="fixed inset-0 z-[90] flex items-center justify-center p-5">
+      <div v-if="batchMode" class="fixed inset-0 z-[90] flex items-center justify-center p-5" @keydown.esc="batchMode = null">
         <button class="absolute inset-0 bg-slate-950/35" aria-label="关闭批量操作" @click="batchMode = null"></button>
         <div class="relative bg-white shadow-2xl w-full max-w-lg p-7">
           <h2 class="text-lg font-semibold text-slate-900">

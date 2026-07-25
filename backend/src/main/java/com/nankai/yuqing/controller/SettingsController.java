@@ -3,7 +3,7 @@ package com.nankai.yuqing.controller;
 import com.nankai.yuqing.repository.EventRepository;
 import com.nankai.yuqing.repository.PostRepository;
 import com.nankai.yuqing.service.AnalysisSettingsService;
-import com.nankai.yuqing.service.DataImportService;
+import com.nankai.yuqing.service.ReanalysisJobService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.*;
@@ -20,16 +20,16 @@ public class SettingsController {
     private final PostRepository postRepository;
     private final EventRepository eventRepository;
     private final AnalysisSettingsService settingsService;
-    private final DataImportService dataImportService;
+    private final ReanalysisJobService reanalysisJobService;
 
     public SettingsController(PostRepository postRepository,
                               EventRepository eventRepository,
                               AnalysisSettingsService settingsService,
-                              DataImportService dataImportService) {
+                              ReanalysisJobService reanalysisJobService) {
         this.postRepository = postRepository;
         this.eventRepository = eventRepository;
         this.settingsService = settingsService;
-        this.dataImportService = dataImportService;
+        this.reanalysisJobService = reanalysisJobService;
     }
 
     @GetMapping
@@ -67,11 +67,12 @@ public class SettingsController {
     public Map<String, Object> updateSettings(@RequestBody Map<String, Object> body) {
         try {
             Map<String, Object> result = new LinkedHashMap<>(settingsService.update(body));
-            // 分类及自定义规则保存后立即重算，保证刷新各页面时使用的是新设置。
-            dataImportService.reanalyzeAll();
+            // 数据量较大时同步重算会阻塞设置保存，因此统一交给后台任务处理。
+            Map<String, Object> job = reanalysisJobService.start();
             result.put("success", true);
-            result.put("message", "设置已保存，分析结果已按新规则刷新");
-            result.put("reanalyzed", true);
+            result.put("message", "设置已保存，后台重新分析已启动");
+            result.put("reanalyzed", false);
+            result.put("reanalysisJob", job);
             return result;
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);

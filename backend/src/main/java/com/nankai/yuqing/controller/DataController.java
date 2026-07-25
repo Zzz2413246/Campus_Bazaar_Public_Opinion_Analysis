@@ -2,6 +2,7 @@ package com.nankai.yuqing.controller;
 
 import com.nankai.yuqing.service.CommentImportService;
 import com.nankai.yuqing.service.DataImportService;
+import com.nankai.yuqing.service.ReanalysisJobService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,11 +21,14 @@ public class DataController {
 
     private final DataImportService dataImportService;
     private final CommentImportService commentImportService;
+    private final ReanalysisJobService reanalysisJobService;
 
     public DataController(DataImportService dataImportService,
-                          CommentImportService commentImportService) {
+                          CommentImportService commentImportService,
+                          ReanalysisJobService reanalysisJobService) {
         this.dataImportService = dataImportService;
         this.commentImportService = commentImportService;
+        this.reanalysisJobService = reanalysisJobService;
     }
 
     /**
@@ -47,8 +51,12 @@ public class DataController {
         Map<String, Object> result = new java.util.LinkedHashMap<>(
             commentImportService.importComments(rawData));
         int changed = number(result.get("imported")) + number(result.get("updated"));
-        if (changed > 0) dataImportService.reanalyzeAll();
-        result.put("reanalyzed", changed > 0);
+        if (changed > 0) {
+            result.put("reanalysisJob", reanalysisJobService.start());
+            result.put("message", "评论已安全保存，后台重新分析已启动");
+        }
+        result.put("reanalyzed", false);
+        result.put("reanalysisScheduled", changed > 0);
         return result;
     }
 
@@ -71,11 +79,12 @@ public class DataController {
      */
     @PostMapping("/reanalyze")
     public Map<String, Object> reanalyzeAll() {
-        dataImportService.reanalyzeAll();
-        Map<String, Object> result = new java.util.LinkedHashMap<>(dataImportService.getDataStats());
-        result.put("success", true);
-        result.put("message", "重新分析完成");
-        return result;
+        return reanalysisJobService.start();
+    }
+
+    @GetMapping("/reanalyze/status")
+    public Map<String, Object> reanalyzeStatus() {
+        return reanalysisJobService.status();
     }
 
     /**

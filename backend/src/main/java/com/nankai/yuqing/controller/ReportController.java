@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -164,6 +165,35 @@ public class ReportController {
         result.put("categories", categories);
         result.put("emotion", Map.of(
             "positive", positive, "neutral", neutral, "negative", negative));
+        result.put("meta", reportMeta(type, start.toString()));
+        result.put("periodLabel", start.equals(end)
+            ? start.format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"))
+            : start.format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"))
+                + " 至 " + end.format(DateTimeFormatter.ofPattern("yyyy年MM月dd日")));
+        result.put("overview", Map.of(
+            "postCount", periodPosts.size(),
+            "eventCount", periodEvents.size(),
+            "highRiskCount", periodEvents.stream().filter(e -> "高".equals(e.getRisk())).count(),
+            "negativeCount", negative));
+        result.put("overviewText", (type.equals("weekly") ? "本周" : "本日")
+            + "共监测到校园讨论 " + periodPosts.size()
+            + " 条，识别安全相关事件 " + periodEvents.size()
+            + " 个，其中高风险事件 "
+            + periodEvents.stream().filter(e -> "高".equals(e.getRisk())).count() + " 个。");
+        result.put("keyEvents", periodEvents.stream()
+            .sorted(Comparator
+                .comparingInt(this::eventRiskRank).reversed()
+                .thenComparing(EventEntity::getPostCount,
+                    Comparator.nullsLast(Comparator.reverseOrder())))
+            .limit(8)
+            .map(this::eventReportItem)
+            .toList());
+        result.put("recommendations", periodEvents.stream().anyMatch(e -> "高".equals(e.getRisk()))
+            ? List.of("立即核实高风险事件并明确责任人和完成时限。",
+                "持续跟踪关联讨论和评论变化，必要时升级处置。",
+                "处置完成后补充结论并形成复盘记录。")
+            : List.of("整体舆情较为平稳，建议保持日常监测。",
+                "关注讨论量和负面情绪的异常变化。"));
         return result;
     }
 
@@ -202,7 +232,88 @@ public class ReportController {
         result.put("events", 1);
         result.put("highRisk", "高".equals(event.getRisk()) ? 1 : 0);
         result.put("status", "已生成");
+        result.put("meta", reportMeta("event", eventId));
+        result.put("periodLabel", event.getCreatedAt() == null
+            ? "时间待核实"
+            : event.getCreatedAt().format(DateTimeFormatter.ofPattern("yyyy年MM月dd日 HH:mm")));
+        result.put("overview", Map.of(
+            "postCount", number(event.getPostCount()),
+            "eventCount", 1,
+            "highRiskCount", "高".equals(event.getRisk()) ? 1 : 0,
+            "negativeCount", posts.stream().filter(post -> "负面".equals(effectiveEmotion(post))).count()));
+        result.put("overviewText", Objects.toString(event.getSummary(), "暂无事件摘要"));
+        result.put("categories", Map.of(
+            Objects.toString(event.getCategory(), "其他风险"), (long) Math.max(1, number(event.getPostCount()))));
+        result.put("emotion", Map.of(
+            "positive", posts.stream().filter(post -> "正面".equals(effectiveEmotion(post))).count(),
+            "neutral", posts.stream().filter(post -> "中性".equals(effectiveEmotion(post))).count(),
+            "negative", posts.stream().filter(post -> "负面".equals(effectiveEmotion(post))).count()));
+        result.put("keyEvents", List.of(eventReportItem(event)));
+        result.put("relatedDiscussions", posts.stream().limit(10).map(post -> Map.of(
+            "id", post.getId(),
+            "title", Objects.toString(post.getTitle(), Objects.toString(post.getContent(), "无标题帖子")),
+            "risk", effectiveRisk(post),
+            "emotion", Objects.toString(effectiveEmotion(post), "中性")
+        )).toList());
+        result.put("recommendations", "高".equals(event.getRisk())
+            ? List.of("立即核实事件事实并明确牵头负责人。",
+                "持续跟踪关联帖子与评论变化。",
+                "完成处置后记录结论并归档。")
+            : List.of("保持关注，根据后续讨论变化及时研判。",
+                "如风险升级，及时调整处置优先级。"));
         return result;
+    }
+
+    private Map<String, Object> reportMeta(String type, String key) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        String typeCode = switch (type) {
+            case "weekly" -> "ZB";
+            case "event" -> "SJ";
+            default -> "RB";
+        };
+        meta.put("reportNumber", "YQ-" + typeCode + "-" + key.replaceAll("[^0-9A-Za-z]", ""));
+        meta.put("institution", "校园安全舆情分析平台");
+        meta.put("confidentiality", "内部资料");
+        meta.put("generatedAt", LocalDateTime.now());
+        meta.put("typeLabel", switch (type) {
+            case "weekly" -> "校园安全舆情周报";
+            case "event" -> "校园安全事件简报";
+            default -> "校园安全舆情日报";
+        });
+        meta.put("dataBasis", "校园集市帖子及其关联评论");
+        return meta;
+    }
+
+    private Map<String, Object> eventReportItem(EventEntity event) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", event.getId());
+        item.put("title", event.getTitle());
+        item.put("category", Objects.toString(event.getCategory(), "其他风险"));
+        item.put("risk", Objects.toString(event.getRisk(), "低"));
+        item.put("postCount", number(event.getPostCount()));
+        item.put("status", normalizeEventStatus(event.getStatus()));
+        item.put("assignee", Objects.toString(event.getAssignee(), "待指派"));
+        item.put("summary", Objects.toString(event.getSummary(), "暂无摘要"));
+        return item;
+    }
+
+    private int eventRiskRank(EventEntity event) {
+        return switch (Objects.toString(event.getRisk(), "低")) {
+            case "高" -> 3;
+            case "中" -> 2;
+            default -> 1;
+        };
+    }
+
+    private String normalizeEventStatus(String status) {
+        if (status == null || status.isBlank() || "未处理".equals(status) || "待研判".equals(status)) return "待核实";
+        if ("已确认".equals(status)) return "持续观察";
+        if ("已忽略".equals(status)) return "误报";
+        return status;
+    }
+
+    private int number(Integer value) {
+        return value == null ? 0 : value;
     }
 
     private void appendEvents(StringBuilder content, List<EventEntity> events) {
@@ -251,5 +362,11 @@ public class ReportController {
     private String effectiveEmotion(Post post) {
         return post.getReviewedEmotion() != null
             ? post.getReviewedEmotion() : post.getEmotion();
+    }
+
+    private String effectiveRisk(Post post) {
+        if (post.getReviewedRiskLevel() != null) return post.getReviewedRiskLevel();
+        if (post.getProvidedRiskLevel() != null) return post.getProvidedRiskLevel();
+        return Objects.toString(post.getRiskLevel(), "低");
     }
 }

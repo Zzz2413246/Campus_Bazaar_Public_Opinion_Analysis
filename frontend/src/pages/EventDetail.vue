@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import BaseChart from '../components/BaseChart.vue'
 import AppIcon from '../components/AppIcon.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
@@ -43,6 +43,7 @@ const event = ref({
   dueAt: '',
   resolution: '',
   overdue: false,
+  updatedAt: '',
   actions: [] as Array<{ id?: number; operator: string; time: string; action: string; desc: string }>,
 })
 
@@ -52,6 +53,17 @@ const assignee = ref('')
 const dueAt = ref('')
 const remark = ref('')
 const saving = ref(false)
+const briefPreview = ref('')
+const baseline = ref('')
+const assigneeOptions = ['保卫处', '后勤保障部', '学生工作部', '校医院', '网络安全中心', '相关学院辅导员']
+const formSnapshot = () => JSON.stringify({
+  risk: adjustedRisk.value,
+  status: dispositionStatus.value,
+  assignee: assignee.value.trim(),
+  dueAt: dueAt.value,
+  remark: remark.value.trim(),
+})
+const hasUnsavedChanges = computed(() => Boolean(baseline.value) && formSnapshot() !== baseline.value)
 
 // 保存研判结果到后端
 async function saveDisposition() {
@@ -60,19 +72,40 @@ async function saveDisposition() {
     toast.error('进入处理阶段前请填写负责人')
     return
   }
+  if (dispositionStatus.value === '处理中' && !dueAt.value) {
+    toast.error('进入处理阶段前请设置计划完成时间')
+    return
+  }
+  if (dueAt.value && !['已解决', '误报'].includes(dispositionStatus.value)
+      && new Date(dueAt.value).getTime() <= Date.now()) {
+    toast.error('计划完成时间必须晚于当前时间')
+    return
+  }
+  const transitions: Record<string, string[]> = {
+    待核实: ['待核实', '处理中', '持续观察', '已解决', '误报'],
+    处理中: ['处理中', '持续观察', '已解决', '误报'],
+    持续观察: ['持续观察', '处理中', '已解决', '误报'],
+    已解决: ['已解决', '处理中'],
+    误报: ['误报', '待核实'],
+  }
+  if (!(transitions[event.value.status] || []).includes(dispositionStatus.value)) {
+    toast.error(`不能从“${event.value.status}”直接变更为“${dispositionStatus.value}”`)
+    return
+  }
   if (['已解决', '误报'].includes(dispositionStatus.value) && !remark.value.trim()) {
     toast.error('关闭事件前请填写处置结论')
     return
   }
   saving.value = true
   try {
-    await eventApi.updateStatus(event.value.id, {
+    const updateResult: any = await eventApi.updateStatus(event.value.id, {
       status: dispositionStatus.value,
       risk: adjustedRisk.value,
       assignee: assignee.value,
       dueAt: dueAt.value,
       remark: remark.value,
       operator: localStorage.getItem('yuqing_nickname') || '管理员',
+      expectedUpdatedAt: event.value.updatedAt,
     })
     event.value.status = dispositionStatus.value
     event.value.risk = adjustedRisk.value
@@ -80,6 +113,8 @@ async function saveDisposition() {
     event.value.dueAt = dueAt.value
     event.value.resolution = remark.value
     event.value.overdue = false
+    event.value.updatedAt = updateResult?.updatedAt ?? event.value.updatedAt
+    baseline.value = formSnapshot()
     const detailRes: any = await eventApi.detail(event.value.id)
     const detail = unwrap(detailRes) || {}
     if (Array.isArray(detail.actions)) {
@@ -92,8 +127,12 @@ async function saveDisposition() {
       }))
     }
     toast.success('处置信息已保存')
-  } catch (err) {
+  } catch (err: any) {
     console.error('保存处置信息失败', err)
+    if (err?.response?.status === 409) {
+      toast.error('该事件刚刚被其他用户修改，请刷新页面后再保存')
+      return
+    }
     toast.error('保存失败，请稍后重试')
   } finally {
     saving.value = false
@@ -118,8 +157,8 @@ function formatActionTime(value: unknown) {
   })
 }
 
-// 生成简报并复制到剪贴板
-async function generateBrief() {
+// 生成简报并预览
+function generateBrief() {
   // 组装简报文本
   const lines: string[] = []
   lines.push(`事件标题：${event.value.title}`)
@@ -141,13 +180,17 @@ async function generateBrief() {
     lines.push('')
     lines.push(`研判备注：${remark.value}`)
   }
-  const text = lines.join('\n')
+  briefPreview.value = lines.join('\n')
+}
+
+async function copyBrief() {
   try {
-    await navigator.clipboard.writeText(text)
-    alert('简报已复制到剪贴板')
+    await navigator.clipboard.writeText(briefPreview.value)
+    toast.success('简报已复制到剪贴板')
+    briefPreview.value = ''
   } catch (err) {
     console.error('复制简报失败', err)
-    alert('复制失败，请手动复制')
+    toast.error('复制失败，请手动选择文本复制')
   }
 }
 
@@ -210,6 +253,7 @@ onMounted(async () => {
       dueAt: toDateTimeLocal(d.dueAt),
       resolution: d.resolution ?? '',
       overdue: Boolean(d.overdue),
+      updatedAt: d.updatedAt ?? cur.updatedAt,
       actions: Array.isArray(d.actions)
         ? d.actions.map((action: any) => ({
             id: action.id,
@@ -225,11 +269,25 @@ onMounted(async () => {
     assignee.value = event.value.assignee
     dueAt.value = event.value.dueAt
     remark.value = event.value.resolution
+    baseline.value = formSnapshot()
   } catch (err) {
     console.warn('事件详情加载失败，使用默认数据', err)
   } finally {
     loading.value = false
   }
+})
+
+function beforeUnload(event: BeforeUnloadEvent) {
+  if (!hasUnsavedChanges.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onMounted(() => window.addEventListener('beforeunload', beforeUnload))
+onUnmounted(() => window.removeEventListener('beforeunload', beforeUnload))
+onBeforeRouteLeave(() => {
+  if (!hasUnsavedChanges.value) return true
+  return window.confirm('当前处置信息尚未保存，确定离开吗？')
 })
 </script>
 
@@ -399,7 +457,10 @@ onMounted(async () => {
         </div>
         <div>
           <label class="text-sm text-slate-600 block mb-1.5">负责人</label>
-          <input v-model="assignee" class="input w-full" placeholder="例如：保卫处张老师" />
+          <input v-model="assignee" list="assignee-options" class="input w-full" placeholder="选择部门或输入负责人" />
+          <datalist id="assignee-options">
+            <option v-for="option in assigneeOptions" :key="option" :value="option"></option>
+          </datalist>
         </div>
         <div>
           <label class="text-sm text-slate-600 block mb-1.5">计划完成时间</label>
@@ -445,5 +506,20 @@ onMounted(async () => {
         <div v-if="!event.actions.length" class="text-sm text-slate-500">暂无处置记录</div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div v-if="briefPreview" class="fixed inset-0 z-[95] flex items-center justify-center p-5" @keydown.esc="briefPreview = ''">
+        <button class="absolute inset-0 bg-slate-950/40" aria-label="关闭简报预览" @click="briefPreview = ''"></button>
+        <section class="relative w-full max-w-2xl bg-white shadow-2xl p-6" role="dialog" aria-modal="true" aria-labelledby="brief-preview-title">
+          <h2 id="brief-preview-title" class="text-lg font-semibold text-slate-900">事件简报预览</h2>
+          <p class="text-sm text-slate-500 mt-1">确认内容后复制，可粘贴到通知或报告中。</p>
+          <textarea v-model="briefPreview" rows="18" class="input w-full resize-y font-mono text-sm mt-4"></textarea>
+          <div class="flex justify-end gap-3 mt-4">
+            <button class="btn btn-ghost" type="button" @click="briefPreview = ''">取消</button>
+            <button class="btn btn-primary" type="button" @click="copyBrief">复制简报</button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>

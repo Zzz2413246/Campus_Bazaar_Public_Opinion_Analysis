@@ -12,6 +12,8 @@ const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
 const currentNickname = ref(localStorage.getItem('yuqing_nickname') || '管理员')
+const currentRole = ref(localStorage.getItem('yuqing_role') || 'ADMIN')
+const refreshKey = ref(0)
 
 const menuItems = computed(() => {
   const mainLayoutRoute = router.options.routes.find((route) => route.path === '/')
@@ -51,7 +53,7 @@ function navigate(path: string) {
 
 // 刷新当前页面
 function refreshPage() {
-  window.location.reload()
+  refreshKey.value += 1
 }
 
 async function logout() {
@@ -62,6 +64,8 @@ async function logout() {
   } finally {
     localStorage.removeItem('yuqing_token')
     localStorage.removeItem('yuqing_nickname')
+    localStorage.removeItem('yuqing_role')
+    localStorage.removeItem('yuqing_permissions')
     router.replace('/login')
   }
 }
@@ -121,12 +125,13 @@ function isMenuActive(path: string) {
 
       <!-- 导航 -->
       <nav class="flex-1 py-5 overflow-y-auto px-4">
-        <div
+        <button
           v-for="item in menuItems"
           :key="item.path"
+          type="button"
           @click="navigate(`/${item.path}`)"
           :class="[
-            'flex items-center justify-center gap-3 px-4 py-3.5 cursor-pointer transition-all duration-200 mb-1.5 group relative',
+            'w-full border-0 flex items-center justify-center gap-3 px-4 py-3.5 cursor-pointer transition-all duration-200 mb-1.5 group relative',
             isMenuActive(item.path)
               ? 'bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-lg shadow-brand-600/30'
               : 'text-slate-400 hover:bg-white/5 hover:text-white',
@@ -146,7 +151,7 @@ function isMenuActive(path: string) {
           >
             {{ item.meta?.title }}
           </span>
-        </div>
+        </button>
       </nav>
 
     </aside>
@@ -197,22 +202,29 @@ function isMenuActive(path: string) {
             {{ new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) }}
           </span>
           <!-- 刷新按钮 -->
-          <span
+          <button
+            type="button"
             @click="refreshPage"
-            class="cursor-pointer hover:text-slate-700 transition-colors"
-            title="刷新"
+            class="p-1.5 cursor-pointer hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            title="刷新当前页面数据"
+            aria-label="刷新当前页面数据"
           >
             <AppIcon name="refresh" :size="18" />
-          </span>
-          <span class="relative cursor-pointer hover:text-slate-700 transition-colors">
-            <AppIcon name="bell" :size="18" />
-            <span class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white"></span>
-          </span>
+          </button>
           <div class="flex items-center gap-2">
-            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-xs text-white font-medium">
-              {{ currentNickname.slice(0, 1) }}
-            </div>
-            <span class="hidden sm:inline">{{ currentNickname }}</span>
+            <button
+              class="flex items-center gap-2 hover:bg-slate-100 px-2 py-1.5 transition-colors cursor-pointer"
+              title="进入个人中心"
+              @click="router.push('/profile')"
+            >
+              <span class="w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-xs text-white font-medium">
+                {{ currentNickname.slice(0, 1) }}
+              </span>
+              <span class="hidden sm:inline">{{ currentNickname }}</span>
+              <span class="hidden lg:inline text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100">
+                {{ currentRole === 'ADMIN' ? '管理员' : currentRole }}
+              </span>
+            </button>
             <button
               class="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
               title="退出登录"
@@ -228,7 +240,7 @@ function isMenuActive(path: string) {
       <main class="app-main flex-1 overflow-auto">
         <router-view v-slot="{ Component }">
           <Transition name="page" mode="out-in">
-            <component :is="Component" />
+            <component :is="Component" :key="`${route.fullPath}-${refreshKey}`" />
           </Transition>
         </router-view>
       </main>

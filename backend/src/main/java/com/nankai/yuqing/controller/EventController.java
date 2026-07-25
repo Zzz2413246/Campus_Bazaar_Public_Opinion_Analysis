@@ -7,7 +7,9 @@ import com.nankai.yuqing.repository.EventActionRepository;
 import com.nankai.yuqing.repository.EventRepository;
 import com.nankai.yuqing.repository.PostRepository;
 import com.nankai.yuqing.service.AnalysisService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.format.DateTimeFormatter;
 import java.time.LocalDateTime;
@@ -86,6 +88,7 @@ public class EventController {
         result.put("dueAt", event.getDueAt());
         result.put("resolution", event.getResolution());
         result.put("overdue", isOverdue(event));
+        result.put("updatedAt", event.getUpdatedAt());
 
         // 核心指标
         Map<String, Object> stats = new LinkedHashMap<>();
@@ -177,6 +180,21 @@ public class EventController {
         String dueAt = body.get("dueAt");
         String remark = body.get("remark");
         String operator = body.getOrDefault("operator", "管理员");
+        String expectedUpdatedAt = body.get("expectedUpdatedAt");
+
+        if (expectedUpdatedAt != null && !expectedUpdatedAt.isBlank() && event.getUpdatedAt() != null) {
+            try {
+                LocalDateTime expected = LocalDateTime.parse(expectedUpdatedAt);
+                if (!event.getUpdatedAt().equals(expected)) {
+                    throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "事件已被其他用户更新，请刷新后重试"
+                    );
+                }
+            } catch (java.time.format.DateTimeParseException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "事件版本时间格式无效", e);
+            }
+        }
 
         Set<String> allowedStatuses = Set.of("待核实", "处理中", "持续观察", "已解决", "误报");
         if (status != null && !allowedStatuses.contains(status)) {

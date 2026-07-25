@@ -38,3 +38,7 @@ target/
 logs
 *.log
 npm-debug.log*
+
+# Generated output
+output/
+tmp/

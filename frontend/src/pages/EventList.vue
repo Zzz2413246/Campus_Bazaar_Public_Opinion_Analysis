@@ -4,20 +4,15 @@ import { useRouter } from 'vue-router'
 import { eventApi, settingsApi } from '@/utils/api'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
 
 const router = useRouter()
 
 const loading = ref(false)
+const loadError = ref('')
 
-const events = ref([
-  { id: '1', risk: '高', title: '西门快递诈骗集中事件', category: '诈骗', posts: 45, growth: '+15/天', time: '7月12日', status: '处理中', assignee: '保卫处', dueAt: '', overdue: false },
-  { id: '2', risk: '高', title: '21栋宿舍电瓶车充电起火', category: '消防', posts: 32, growth: '+8/天', time: '7月13日', status: '待核实', assignee: '', dueAt: '', overdue: false },
-  { id: '3', risk: '中', title: '二食堂卫生投诉集中', category: '食堂', posts: 28, growth: '+5/天', time: '7月11日', status: '处理中', assignee: '后勤处', dueAt: '', overdue: false },
-  { id: '4', risk: '中', title: '教学楼区域电动车乱停', category: '交通', posts: 18, growth: '+3/天', time: '7月12日', status: '持续观察', assignee: '', dueAt: '', overdue: false },
-  { id: '5', risk: '低', title: '图书馆空调温度过低', category: '设施', posts: 5, growth: '稳定', time: '7月13日', status: '持续观察', assignee: '', dueAt: '', overdue: false },
-  { id: '6', risk: '低', title: '操场夜间照明不足', category: '设施', posts: 8, growth: '稳定', time: '7月10日', status: '误报', assignee: '', dueAt: '', overdue: false },
-])
+const events = ref<any[]>([])
 
 // 筛选条件变量
 const filterRisk = ref('')
@@ -66,10 +61,11 @@ function unwrap(res: any) {
 // 加载事件列表数据
 async function loadEvents() {
   loading.value = true
+  loadError.value = ''
   try {
     const res: any = await eventApi.list()
     const d = unwrap(res)
-    if (Array.isArray(d) && d.length) {
+    if (Array.isArray(d)) {
       events.value = d.map((e: any) => ({
         id: String(e.id ?? e.eventId ?? ''),
         risk: e.risk ?? e.riskLevel ?? '低',
@@ -85,7 +81,9 @@ async function loadEvents() {
       }))
     }
   } catch (err) {
-    console.warn('事件列表加载失败，使用默认数据', err)
+    console.warn('事件列表加载失败', err)
+    events.value = []
+    loadError.value = '事件数据暂时无法获取，请稍后重试。'
   } finally {
     loading.value = false
   }
@@ -113,6 +111,7 @@ onMounted(() => {
   <div class="page large-detail-page">
     <!-- 加载状态 -->
     <LoadingSpinner v-if="loading" />
+    <ErrorState v-else-if="loadError" title="事件列表加载失败" :message="loadError" @retry="loadEvents" />
     <!-- 筛选栏 -->
     <div class="card card-pad flex flex-wrap items-center gap-3">
       <span class="text-sm text-slate-500">筛选</span>

@@ -2,7 +2,7 @@ import axios from 'axios'
 import { toast } from '@/utils/toast'
 
 const http = axios.create({
-  baseURL: 'http://localhost:8080/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 15000,
 })
 
@@ -19,6 +19,8 @@ http.interceptors.response.use(
     if (err?.response?.status === 401 && !String(err?.config?.url || '').includes('/auth/login')) {
       localStorage.removeItem('yuqing_token')
       localStorage.removeItem('yuqing_nickname')
+      localStorage.removeItem('yuqing_role')
+      localStorage.removeItem('yuqing_permissions')
       window.location.hash = '#/login'
       return Promise.reject(err)
     }
@@ -38,6 +40,9 @@ export const authApi = {
   login: (nickname: string, password: string) =>
     http.post('/auth/login', { nickname, password }),
   me: () => http.get('/auth/me'),
+  profile: () => http.get('/auth/profile'),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    http.put('/auth/password', { currentPassword, newPassword }),
   logout: () => http.post('/auth/logout'),
 }
 
@@ -57,8 +62,8 @@ export const postApi = {
     sortBy?: 'latest' | 'risk' | 'heat'
     page?: number
     size?: number
-  }) =>
-    http.get('/posts', { params }),
+  }, signal?: AbortSignal) =>
+    http.get('/posts', { params, signal }),
   detail: (id: string, params?: { commentPage?: number; commentSize?: number }) =>
     http.get(`/posts/${id}`, { params }),
   review: (id: string, data: {
@@ -94,6 +99,7 @@ export const eventApi = {
     dueAt?: string
     remark?: string
     operator?: string
+    expectedUpdatedAt?: string
   }) =>
     http.put(`/events/${id}/status`, data),
 }
@@ -129,7 +135,15 @@ export const dataApi = {
   import: (data: any[]) => http.post('/data/import', data, { timeout: 120000 }),
   importComments: (data: any[]) => http.post('/data/comments/import', data, { timeout: 120000 }),
   reanalyze: () => http.post('/data/reanalyze', undefined, { timeout: 120000 }),
+  reanalyzeStatus: () => http.get('/data/reanalyze/status'),
   clear: () => http.delete('/data/all'),
+}
+
+export const auditApi = {
+  logs: (params?: { action?: string; page?: number; size?: number }) =>
+    http.get('/audit/logs', { params }),
+  summary: () => http.get('/audit/summary'),
+  mine: (params?: { page?: number; size?: number }) => http.get('/audit/my', { params }),
 }
 
 // 可插拔分析任务（任务二标准到位后沿用此接口）

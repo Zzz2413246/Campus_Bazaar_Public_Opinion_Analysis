@@ -84,7 +84,7 @@ export function trendLineOption(): EChartsOption {
 }
 
 // 议题分布 · 环形饼图
-export function donutOption(): EChartsOption {
+export function donutOption(categoryCount = 5): EChartsOption {
   return {
     tooltip: { trigger: 'item', backgroundColor: 'rgba(255,255,255,0.96)', borderColor: '#e2e8f0', borderWidth: 1, textStyle: { color: '#334155', fontSize: 12 }, extraCssText: 'box-shadow: 0 6px 24px rgba(15,23,42,0.08); backdrop-filter: blur(6px);' },
     legend: {
@@ -92,13 +92,29 @@ export function donutOption(): EChartsOption {
       icon: 'circle', itemWidth: 8, itemHeight: 8,
       textStyle: { color: '#64748b', fontSize: 12 },
     },
+    title: {
+      text: `总议题\n${categoryCount}类`,
+      left: '38%',
+      top: '50%',
+      textAlign: 'center',
+      textVerticalAlign: 'middle',
+      textStyle: {
+        color: '#475569',
+        fontSize: 14,
+        fontWeight: 600,
+        lineHeight: 20,
+      },
+    },
     series: [{
       type: 'pie', radius: ['52%', '78%'], center: ['38%', '50%'],
-      avoidLabelOverlap: false,
+      avoidLabelOverlap: true,
       itemStyle: { borderColor: '#fff', borderWidth: 3, borderRadius: 6 },
-      label: { show: true, position: 'center',
-        formatter: '总议题\n{c}类', fontSize: 14, color: '#475569', lineHeight: 20 },
-      emphasis: { label: { show: true, fontSize: 16, fontWeight: 'bold' } },
+      label: { show: false },
+      emphasis: {
+        scale: true,
+        scaleSize: 5,
+        label: { show: false },
+      },
       labelLine: { show: false },
       data: [
         { value: 35, name: '诈骗', itemStyle: { color: palette[0] } },

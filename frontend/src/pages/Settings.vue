@@ -2,11 +2,18 @@
 import { ref, onMounted } from 'vue'
 import { settingsApi } from '@/utils/api'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import { toast } from '@/utils/toast'
 
 const loading = ref(false)
+const loadError = ref('')
 const saving = ref(false)
 const saveMsg = ref('')
+const categoryDialog = ref<'add' | 'edit' | 'delete' | null>(null)
+const categoryDialogIndex = ref(-1)
+const categoryDraftName = ref('')
+const categoryDraftKeywords = ref('')
+const saveConfirmOpen = ref(false)
 
 const categoryRules = ref<Record<string, string[]>>({})
 const builtinCategories = ref<string[]>([])
@@ -21,24 +28,17 @@ const alertRules = ref({
 })
 const urgentKeywordsText = ref('聚集，线下行动，报警，起火，爆炸，持刀，跳楼，轻生，食物中毒，救护车')
 
-const categories = ref([
-  '诈骗与财产安全', '治安与人身安全', '消防与用电安全', '校园交通安全',
-  '宿舍设施问题', '食堂及校园设施', '突发事件与异常', '学生投诉与诉求',
-])
-
-const sources = ref([
-  { name: '校园集市数据', desc: '最后同步：2026-07-14 10:30', status: '已连接', ok: true },
-  { name: '外部社交媒体数据', desc: '微博 · 小红书 · B站', status: '已连接', ok: true },
-  { name: '项目组已有数据', desc: '约10万条社交媒体评论', status: '待导入', ok: false },
-])
+const categories = ref<string[]>([])
+const sources = ref<any[]>([])
 
 function unwrap(res: any) {
   if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
   return res
 }
 
-onMounted(async () => {
+async function loadSettings() {
   loading.value = true
+  loadError.value = ''
   try {
     const res: any = await settingsApi.get()
     const d = unwrap(res) || {}
@@ -78,11 +78,14 @@ onMounted(async () => {
       }))
     }
   } catch (err) {
-    console.warn('设置数据加载失败，使用默认数据', err)
+    console.warn('设置数据加载失败', err)
+    loadError.value = '系统设置暂时无法获取，请检查服务连接后重试。'
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadSettings)
 
 // 保存设置
 async function saveSettings() {
@@ -99,9 +102,11 @@ async function saveSettings() {
     })
     const d = unwrap(res) || res || {}
     if (Array.isArray(d.categories)) categories.value = d.categories.map(String)
-    saveMsg.value = '分类已保存，分析结果已刷新'
-    // 额外通过 toast 提示保存成功
-    toast.success('设置已保存')
+    const jobStarted = Boolean(d.reanalysisJob)
+    saveMsg.value = jobStarted
+      ? '设置已保存，后台重新分析已启动，可在数据管理中查看进度'
+      : (d.message || '设置已保存')
+    toast.success(jobStarted ? '设置已保存，重新分析任务已启动' : '设置已保存')
     setTimeout(() => { saveMsg.value = '' }, 3000)
   } catch (err) {
     console.warn('保存设置失败', err)
@@ -114,35 +119,17 @@ async function saveSettings() {
 
 // 删除分类
 function removeCategory(index: number) {
-  if (confirm('确定要删除该分类吗？')) {
-    const name = categories.value[index]
-    categories.value.splice(index, 1)
-    delete categoryRules.value[name]
-    // 删除分类成功提示
-    toast.success('分类已删除')
-  }
+  categoryDialogIndex.value = index
+  categoryDraftName.value = categories.value[index]
+  categoryDialog.value = 'delete'
 }
 
 // 新增分类
 function addCategory() {
-  const name = prompt('请输入新分类名称：')
-  const normalized = name?.trim()
-  if (normalized) {
-    if (categories.value.includes(normalized)) {
-      toast.error('该分类已经存在')
-      return
-    }
-    const rawKeywords = prompt('请输入识别关键词，多个词用逗号分隔：\n建议使用明确短语，例如“网络攻击、账号泄露、钓鱼邮件”')
-    const keywords = parseKeywords(rawKeywords || '')
-    if (!keywords.length) {
-      toast.error('新增分类至少需要一个不少于2个字符的关键词')
-      return
-    }
-    categories.value.push(normalized)
-    categoryRules.value[normalized] = keywords
-    // 新增分类成功提示
-    toast.success('分类已新增')
-  }
+  categoryDialogIndex.value = -1
+  categoryDraftName.value = ''
+  categoryDraftKeywords.value = ''
+  categoryDialog.value = 'add'
 }
 
 // 编辑分类
@@ -152,24 +139,34 @@ function editCategory(index: number) {
     toast.error('内置分类名称不可编辑；可以删除以停用，或新增自定义分类')
     return
   }
-  const newName = prompt('请输入新的分类名称：', categories.value[index])
-  const normalized = newName?.trim()
-  if (normalized) {
-    if (normalized !== oldName && categories.value.includes(normalized)) {
-      toast.error('该分类已经存在')
-      return
-    }
-    const oldKeywords = categoryRules.value[oldName] || []
-    const rawKeywords = prompt('请输入识别关键词，多个词用逗号分隔：', oldKeywords.join('，'))
-    const keywords = parseKeywords(rawKeywords || '')
-    if (!keywords.length) {
-      toast.error('自定义分类至少需要一个不少于2个字符的关键词')
-      return
-    }
-    categories.value[index] = normalized
-    if (normalized !== oldName) delete categoryRules.value[oldName]
-    categoryRules.value[normalized] = keywords
+  categoryDialogIndex.value = index
+  categoryDraftName.value = oldName
+  categoryDraftKeywords.value = (categoryRules.value[oldName] || []).join('，')
+  categoryDialog.value = 'edit'
+}
+
+function confirmCategoryDialog() {
+  const index = categoryDialogIndex.value
+  if (categoryDialog.value === 'delete') {
+    const name = categories.value[index]
+    categories.value.splice(index, 1)
+    delete categoryRules.value[name]
+    categoryDialog.value = null
+    toast.success('分类已删除，保存设置后生效')
+    return
   }
+  const name = categoryDraftName.value.trim()
+  const keywords = parseKeywords(categoryDraftKeywords.value)
+  if (!name) return toast.error('请输入分类名称')
+  const oldName = index >= 0 ? categories.value[index] : ''
+  if (name !== oldName && categories.value.includes(name)) return toast.error('该分类已经存在')
+  if (!keywords.length) return toast.error('至少需要一个不少于 2 个字符的关键词')
+  if (categoryDialog.value === 'add') categories.value.push(name)
+  else categories.value[index] = name
+  if (oldName && oldName !== name) delete categoryRules.value[oldName]
+  categoryRules.value[name] = keywords
+  categoryDialog.value = null
+  toast.success(index < 0 ? '分类已新增，保存后生效' : '分类已更新，保存后生效')
 }
 
 function parseKeywords(raw: string) {
@@ -185,6 +182,12 @@ function isBuiltin(name: string) {
   <div class="page large-detail-page">
     <!-- 加载状态 -->
     <LoadingSpinner v-if="loading" />
+    <ErrorState
+      v-else-if="loadError"
+      title="系统设置加载失败"
+      :message="loadError"
+      @retry="loadSettings"
+    />
     <!-- 数据源配置 -->
     <div class="card card-pad">
       <h3 class="section-title mb-4">数据源配置</h3>
@@ -227,7 +230,7 @@ function isBuiltin(name: string) {
       </div>
       <button @click="addCategory" class="btn btn-ghost mt-4 w-full">+ 新增分类及识别关键词</button>
       <div class="flex items-center gap-3 mt-3">
-        <button @click="saveSettings" :disabled="saving" class="btn btn-primary">
+        <button @click="saveConfirmOpen = true" :disabled="saving" class="btn btn-primary">
           {{ saving ? '保存中...' : '保存分类' }}
         </button>
         <span v-if="saveMsg" class="text-sm text-emerald-600">{{ saveMsg }}</span>
@@ -308,11 +311,54 @@ function isBuiltin(name: string) {
       </label>
 
       <div class="flex items-center gap-3 mt-4">
-        <button @click="saveSettings" :disabled="saving" class="btn btn-primary">
+        <button @click="saveConfirmOpen = true" :disabled="saving" class="btn btn-primary">
           {{ saving ? '保存并重算中...' : '保存辅助规则' }}
         </button>
         <span v-if="saveMsg" class="text-sm text-emerald-600">{{ saveMsg }}</span>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div v-if="categoryDialog" class="fixed inset-0 z-[95] flex items-center justify-center p-5" @keydown.esc="categoryDialog = null">
+        <button class="absolute inset-0 bg-slate-950/40" aria-label="关闭分类编辑" @click="categoryDialog = null"></button>
+        <section class="relative w-full max-w-lg bg-white shadow-2xl p-6" role="dialog" aria-modal="true" aria-labelledby="category-dialog-title">
+          <h2 id="category-dialog-title" class="text-lg font-semibold text-slate-900">
+            {{ categoryDialog === 'add' ? '新增安全分类' : categoryDialog === 'edit' ? '编辑安全分类' : '删除安全分类' }}
+          </h2>
+          <template v-if="categoryDialog !== 'delete'">
+            <label class="block mt-5">
+              <span class="text-sm text-slate-600 block mb-1.5">分类名称</span>
+              <input v-model="categoryDraftName" class="input w-full" maxlength="40" placeholder="例如：网络与账号安全" />
+            </label>
+            <label class="block mt-4">
+              <span class="text-sm text-slate-600 block mb-1.5">识别关键词</span>
+              <textarea v-model="categoryDraftKeywords" rows="4" class="input w-full resize-none" placeholder="多个关键词用逗号分隔，例如：账号泄露，钓鱼邮件"></textarea>
+            </label>
+          </template>
+          <p v-else class="mt-5 text-sm text-slate-700">确定删除“{{ categoryDraftName }}”吗？保存设置后该分类将停止识别。</p>
+          <div class="flex justify-end gap-3 mt-6">
+            <button class="btn btn-ghost" type="button" @click="categoryDialog = null">取消</button>
+            <button :class="['btn', categoryDialog === 'delete' ? 'text-white bg-rose-600' : 'btn-primary']" type="button" @click="confirmCategoryDialog">
+              {{ categoryDialog === 'delete' ? '确认删除' : '确认' }}
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="saveConfirmOpen" class="fixed inset-0 z-[96] flex items-center justify-center p-5" @keydown.esc="saveConfirmOpen = false">
+        <button class="absolute inset-0 bg-slate-950/40" aria-label="关闭保存确认" @click="saveConfirmOpen = false"></button>
+        <section class="relative w-full max-w-lg bg-white shadow-2xl p-6" role="dialog" aria-modal="true" aria-labelledby="save-settings-title">
+          <h2 id="save-settings-title" class="text-lg font-semibold text-slate-900">保存并重新分析全部数据？</h2>
+          <p class="text-sm text-slate-600 mt-3 leading-6">
+            本次保存包含 {{ categories.length }} 个启用分类和 {{ parseKeywords(urgentKeywordsText).length }} 个高危信号词。
+            后端会重新计算全部帖子、评论和事件。
+          </p>
+          <div class="flex justify-end gap-3 mt-6">
+            <button class="btn btn-ghost" type="button" @click="saveConfirmOpen = false">取消</button>
+            <button class="btn btn-primary" type="button" @click="saveConfirmOpen = false; saveSettings()">确认保存</button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>

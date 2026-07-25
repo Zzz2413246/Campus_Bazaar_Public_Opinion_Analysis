@@ -45,7 +45,7 @@ public class CommentImportService {
         int updated = 0;
         int skipped = 0;
         int errors = 0;
-        int unmatched = 0;
+        int duplicatesMerged = 0;
 
         Map<String, PostComment> existing = new HashMap<>();
         for (PostComment comment : commentRepository.findAll()) {
@@ -53,17 +53,21 @@ public class CommentImportService {
         }
         Set<String> postIds = new HashSet<>(postRepository.findAllIds());
         Set<String> seenIds = new HashSet<>();
-        List<PostComment> changed = new ArrayList<>();
+        Set<String> newIds = new HashSet<>();
+        Set<String> updatedIds = new HashSet<>();
+        Map<String, String> finalThreadIds = new HashMap<>();
+        Map<String, PostComment> changed = new LinkedHashMap<>();
 
         log.info("开始导入 {} 条评论数据", rawData.size());
         for (Map<String, Object> item : rawData) {
             String id = text(item.get("comment_id"));
             String threadId = text(item.get("thread_id"));
-            if (id.isBlank() || threadId.isBlank() || !seenIds.add(id)) {
+            if (id.isBlank() || threadId.isBlank()) {
                 errors++;
                 continue;
             }
-            if (!postIds.contains(threadId)) unmatched++;
+            if (!seenIds.add(id)) duplicatesMerged++;
+            finalThreadIds.put(id, threadId);
 
             PostComment incoming = convert(item);
             if (incoming == null) {
@@ -73,17 +77,22 @@ public class CommentImportService {
 
             PostComment current = existing.get(id);
             if (current == null) {
-                changed.add(incoming);
+                existing.put(id, incoming);
+                newIds.add(id);
+                changed.put(id, incoming);
                 imported++;
             } else if (mergeRawFields(current, incoming)) {
-                changed.add(current);
-                updated++;
+                changed.put(id, current);
+                if (!newIds.contains(id) && updatedIds.add(id)) updated++;
             } else {
                 skipped++;
             }
         }
 
-        if (!changed.isEmpty()) commentRepository.saveAll(changed);
+        if (!changed.isEmpty()) commentRepository.saveAll(new ArrayList<>(changed.values()));
+        long unmatched = finalThreadIds.values().stream()
+            .filter(threadId -> !postIds.contains(threadId))
+            .count();
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", rawData.size());
@@ -92,6 +101,7 @@ public class CommentImportService {
         result.put("skipped", skipped);
         result.put("errors", errors);
         result.put("unmatched", unmatched);
+        result.put("duplicatesMerged", duplicatesMerged);
         log.info("评论导入完成：{}", result);
         return result;
     }

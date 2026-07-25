@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -32,31 +33,35 @@ public class DashboardController {
     @GetMapping
     public Map<String, Object> dashboard() {
         Map<String, Object> result = new LinkedHashMap<>();
+        List<Post> allPosts = postRepository.findAll();
+        List<EventEntity> allEvents = eventRepository.findAllByOrderByRiskScoreDescCreatedAtDesc();
 
         // 统计卡片
-        result.put("stats", buildStats());
+        result.put("stats", buildStats(allPosts, allEvents));
 
         // 最近事件
-        result.put("recentEvents", buildRecentEvents());
+        result.put("recentEvents", buildRecentEvents(allEvents));
 
         // 趋势数据
-        result.put("trendData", buildTrendData());
+        result.put("trendData", buildTrendData(allPosts, allEvents));
 
         // 议题分布
         result.put("categoryDistribution", buildCategoryDistribution());
 
         // 实时风险预警
-        result.put("alerts", buildAlerts());
+        List<Map<String, Object>> alerts = buildAlerts(allEvents);
+        result.put("alerts", alerts);
+
+        // 首页行动工作台
+        result.put("workbench", buildWorkbench(allPosts, allEvents, alerts));
 
         return result;
     }
 
-    private List<Map<String, Object>> buildStats() {
-        List<Post> allPosts = postRepository.findAll();
+    private List<Map<String, Object>> buildStats(List<Post> allPosts, List<EventEntity> events) {
         long totalPosts = allPosts.size();
 
         // 事件统计
-        List<EventEntity> events = eventRepository.findAll();
         long eventCount = events.size();
         long highRiskCount = events.stream().filter(e -> "高".equals(e.getRisk())).count();
 
@@ -179,13 +184,13 @@ public class DashboardController {
         };
     }
 
-    private List<Map<String, Object>> buildRecentEvents() {
-        List<EventEntity> events = eventRepository.findAllByOrderByRiskScoreDescCreatedAtDesc();
+    private List<Map<String, Object>> buildRecentEvents(List<EventEntity> events) {
         List<Map<String, Object>> result = new ArrayList<>();
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM月dd日");
         for (int i = 0; i < Math.min(5, events.size()); i++) {
             EventEntity e = events.get(i);
             Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", e.getId());
             m.put("time", e.getCreatedAt() != null ? e.getCreatedAt().format(fmt) : "");
             m.put("title", e.getTitle());
             m.put("category", e.getCategory());
@@ -196,10 +201,8 @@ public class DashboardController {
         return result;
     }
 
-    private Map<String, Object> buildTrendData() {
+    private Map<String, Object> buildTrendData(List<Post> posts, List<EventEntity> events) {
         List<String> days = analysisService.getLastNDays(7);
-        List<Post> posts = postRepository.findAll();
-        List<EventEntity> events = eventRepository.findAll();
         List<EventEntity> highRiskEvents = events.stream().filter(e -> "高".equals(e.getRisk())).toList();
 
         // 真实按天统计
@@ -227,12 +230,12 @@ public class DashboardController {
         return result;
     }
 
-    private List<Map<String, Object>> buildAlerts() {
-        List<EventEntity> events = eventRepository.findAllByOrderByRiskScoreDescCreatedAtDesc();
+    private List<Map<String, Object>> buildAlerts(List<EventEntity> events) {
         List<Map<String, Object>> result = new ArrayList<>();
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM月dd日");
         for (EventEntity e : events) {
             if (!"高".equals(e.getRisk()) && !"中".equals(e.getRisk())) continue;
+            if (Set.of("已解决", "误报", "已忽略").contains(normalizeStatus(e.getStatus()))) continue;
             List<Post> posts = postRepository.findByEventId(e.getId());
             List<Map<String, Object>> triggers =
                 analysisService.getAlertTriggers(e, posts);
@@ -254,5 +257,182 @@ public class DashboardController {
             if (result.size() >= 5) break;
         }
         return result;
+    }
+
+    private Map<String, Object> buildWorkbench(
+            List<Post> posts,
+            List<EventEntity> events,
+            List<Map<String, Object>> alerts) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
+        LocalDate yesterday = today.minusDays(1);
+
+        List<Post> pendingReviews = posts.stream()
+            .filter(post -> post.getReviewStatus() == null || "待复核".equals(post.getReviewStatus()))
+            .sorted(Comparator
+                .comparingInt(this::effectiveRiskRank).reversed()
+                .thenComparing(Comparator.comparingInt(this::postHeat).reversed())
+                .thenComparing(Post::getPublishTime,
+                    Comparator.nullsLast(Comparator.reverseOrder())))
+            .toList();
+
+        List<EventEntity> openEvents = events.stream()
+            .filter(event -> !Set.of("已解决", "误报", "已忽略").contains(normalizeStatus(event.getStatus())))
+            .toList();
+        List<EventEntity> overdueEvents = openEvents.stream()
+            .filter(event -> event.getDueAt() != null && event.getDueAt().isBefore(now))
+            .sorted(Comparator.comparing(EventEntity::getDueAt))
+            .toList();
+        List<EventEntity> dueSoonEvents = openEvents.stream()
+            .filter(event -> event.getDueAt() != null)
+            .filter(event -> !event.getDueAt().isBefore(now))
+            .filter(event -> !event.getDueAt().isAfter(now.plusHours(48)))
+            .sorted(Comparator.comparing(EventEntity::getDueAt))
+            .toList();
+
+        LocalDateTime latestDataTime = posts.stream()
+            .map(Post::getPublishTime)
+            .filter(Objects::nonNull)
+            .max(LocalDateTime::compareTo)
+            .orElse(null);
+        long dataAgeHours = latestDataTime == null
+            ? -1 : Math.max(0, Duration.between(latestDataTime, now).toHours());
+        boolean staleData = latestDataTime == null || dataAgeHours > 48;
+        long missingContent = posts.stream()
+            .filter(post -> post.getContent() == null || post.getContent().isBlank())
+            .count();
+
+        long activeAlertCount = events.stream()
+            .filter(event -> ("高".equals(event.getRisk()) || "中".equals(event.getRisk())))
+            .filter(event -> !Set.of("已解决", "误报", "已忽略").contains(normalizeStatus(event.getStatus())))
+            .count();
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("pendingReviewCount", pendingReviews.size());
+        summary.put("activeAlertCount", activeAlertCount);
+        summary.put("dueSoonCount", dueSoonEvents.size());
+        summary.put("overdueCount", overdueEvents.size());
+        summary.put("dataIssueCount", staleData ? 1 : 0);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("summary", summary);
+        result.put("pendingReviews", pendingReviews.stream().limit(5).map(this::pendingReviewItem).toList());
+        result.put("deadlineEvents", java.util.stream.Stream.concat(
+                overdueEvents.stream(), dueSoonEvents.stream())
+            .distinct()
+            .limit(5)
+            .map(event -> deadlineItem(event, now))
+            .toList());
+        result.put("dailyChanges", List.of(
+            dailyChange("新增帖子", countPostsOn(posts, today), countPostsOn(posts, yesterday), "条"),
+            dailyChange("中高风险标签", countRiskPostsOn(posts, today), countRiskPostsOn(posts, yesterday), "条"),
+            dailyChange("负面情绪占比", negativeRatioOn(posts, today), negativeRatioOn(posts, yesterday), "%")
+        ));
+
+        Map<String, Object> dataStatus = new LinkedHashMap<>();
+        dataStatus.put("status", staleData ? "需检查" : "正常");
+        dataStatus.put("latestDataAt", latestDataTime);
+        dataStatus.put("ageHours", dataAgeHours);
+        dataStatus.put("missingContentCount", missingContent);
+        dataStatus.put("message", latestDataTime == null
+            ? "当前没有可用的帖子发布时间"
+            : staleData
+                ? "最新帖子数据距今已超过48小时，请检查采集或导入任务"
+                : "帖子数据在48小时内有更新");
+        result.put("dataStatus", dataStatus);
+        result.put("displayedAlertCount", alerts.size());
+        return result;
+    }
+
+    private Map<String, Object> pendingReviewItem(Post post) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", post.getId());
+        item.put("title", firstNonBlank(post.getTitle(), post.getContent(), "无标题帖子"));
+        item.put("risk", effectiveRisk(post));
+        item.put("category", firstNonBlank(post.getReviewedCategory(), post.getSafetyCategory(), "其他"));
+        item.put("time", post.getPublishTime());
+        item.put("heat", postHeat(post));
+        return item;
+    }
+
+    private Map<String, Object> deadlineItem(EventEntity event, LocalDateTime now) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", event.getId());
+        item.put("title", event.getTitle());
+        item.put("risk", event.getRisk());
+        item.put("status", normalizeStatus(event.getStatus()));
+        item.put("assignee", firstNonBlank(event.getAssignee(), "待指派"));
+        item.put("dueAt", event.getDueAt());
+        item.put("overdue", event.getDueAt() != null && event.getDueAt().isBefore(now));
+        return item;
+    }
+
+    private Map<String, Object> dailyChange(String label, long today, long yesterday, String unit) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("label", label);
+        item.put("today", today);
+        item.put("yesterday", yesterday);
+        item.put("difference", today - yesterday);
+        item.put("unit", unit);
+        item.put("direction", today > yesterday ? "up" : today < yesterday ? "down" : "flat");
+        return item;
+    }
+
+    private long countPostsOn(List<Post> posts, LocalDate date) {
+        return posts.stream()
+            .filter(post -> post.getPublishTime() != null && post.getPublishTime().toLocalDate().equals(date))
+            .count();
+    }
+
+    private long countRiskPostsOn(List<Post> posts, LocalDate date) {
+        return posts.stream()
+            .filter(post -> post.getPublishTime() != null && post.getPublishTime().toLocalDate().equals(date))
+            .filter(post -> Set.of("中", "高").contains(effectiveRisk(post)))
+            .count();
+    }
+
+    private long negativeRatioOn(List<Post> posts, LocalDate date) {
+        List<Post> dayPosts = posts.stream()
+            .filter(post -> post.getPublishTime() != null && post.getPublishTime().toLocalDate().equals(date))
+            .toList();
+        if (dayPosts.isEmpty()) return 0;
+        long negative = dayPosts.stream()
+            .filter(post -> "负面".equals(firstNonBlank(post.getReviewedEmotion(), post.getEmotion())))
+            .count();
+        return negative * 100 / dayPosts.size();
+    }
+
+    private int postHeat(Post post) {
+        return number(post.getViewCount()) + number(post.getCommentCount()) * 20 + number(post.getLikeCount()) * 5;
+    }
+
+    private int number(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private int effectiveRiskRank(Post post) {
+        return switch (effectiveRisk(post)) {
+            case "高" -> 3;
+            case "中" -> 2;
+            default -> 1;
+        };
+    }
+
+    private String effectiveRisk(Post post) {
+        return firstNonBlank(post.getReviewedRiskLevel(), post.getProvidedRiskLevel(), post.getRiskLevel(), "低");
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null || status.isBlank() || "未处理".equals(status) || "待研判".equals(status)) return "待核实";
+        if ("已确认".equals(status)) return "持续观察";
+        if ("已忽略".equals(status)) return "误报";
+        return status;
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value;
+        }
+        return "";
     }
 }

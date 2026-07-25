@@ -74,6 +74,12 @@ const router = createRouter({
           meta: { title: '数据管理', icon: 'database' },
           component: () => import('@/pages/DataManage.vue'),
         },
+        {
+          path: 'profile',
+          name: 'Profile',
+          meta: { title: '个人中心', hidden: true },
+          component: () => import('@/pages/Profile.vue'),
+        },
       ],
     },
   ],

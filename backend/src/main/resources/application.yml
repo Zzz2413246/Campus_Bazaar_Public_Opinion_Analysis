@@ -23,7 +23,7 @@ spring:
         order_updates: true
   h2:
     console:
-      enabled: true
+      enabled: ${YUQING_H2_CONSOLE:false}
       path: /h2-console
   jackson:
     default-property-inclusion: non_null
@@ -34,9 +34,9 @@ spring:
 # 数据文件路径
 yuqing:
   auth:
-    nickname: "管理员"
-    password: "123456"
-    session-hours: 24
+    nickname: ${YUQING_AUTH_NICKNAME:管理员}
+    password: ${YUQING_AUTH_PASSWORD:123456}
+    session-hours: ${YUQING_AUTH_SESSION_HOURS:24}
   # 新文件已包含旧 907 条数据，启动时按帖子 ID 增量同步，不会重复导入。
   data-file: "../posts(2).json"
   # 评论按 comment_id 增量同步，通过 thread_id 与帖子 id 关联。

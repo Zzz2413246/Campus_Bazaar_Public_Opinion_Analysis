@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import BaseChart from '../components/BaseChart.vue'
 import AppIcon from '../components/AppIcon.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
 import TrendAnalysis from '@/pages/Trends.vue'
 import { toast } from '@/utils/toast'
@@ -12,13 +13,14 @@ import { useCountUp } from '../utils/useCountUp'
 import { dashboardApi } from '@/utils/api'
 
 const loading = ref(false)
+const loadError = ref('')
 const router = useRouter()
 
 const stats = ref([
-  { label: '总帖子数', value: 12845, change: '较昨日 +12%', trend: 'up', icon: 'message-square', accent: 'brand', spark: [980, 1120, 1050, 1340, 1180, 1420, 1245], sparkColor: '#6366f1' },
-  { label: '安全事件', value: 23, change: '较昨日 -5%', trend: 'good', icon: 'siren', accent: 'amber', spark: [8, 6, 7, 5, 6, 5, 3], sparkColor: '#f59e0b' },
-  { label: '高风险事件', value: 3, change: '需关注', trend: 'warn', icon: 'alert-triangle', accent: 'rose', spark: [1, 2, 1, 3, 1, 2, 3], sparkColor: '#f43f5e' },
-  { label: '整体情绪', value: 0, textValue: '平稳', change: '正向 ↑2%', trend: 'up', icon: 'smile', accent: 'emerald', spark: [38, 40, 42, 41, 44, 48, 50], sparkColor: '#10b981' },
+  { label: '总帖子数', value: 0, change: '暂无数据', trend: 'up', icon: 'message-square', accent: 'brand', spark: [], sparkColor: '#6366f1' },
+  { label: '安全事件', value: 0, change: '暂无数据', trend: 'good', icon: 'siren', accent: 'amber', spark: [], sparkColor: '#f59e0b' },
+  { label: '高风险事件', value: 0, change: '暂无数据', trend: 'warn', icon: 'alert-triangle', accent: 'rose', spark: [], sparkColor: '#f43f5e' },
+  { label: '整体情绪', value: 0, textValue: '暂无数据', change: '', trend: 'up', icon: 'smile', accent: 'emerald', spark: [], sparkColor: '#10b981' },
 ])
 
 // 数字计数动画（仅对数值型统计）
@@ -33,19 +35,28 @@ const accentMap: Record<string, string> = {
   emerald: 'from-emerald-500 to-emerald-400 shadow-emerald-500/30',
 }
 
-const recentEvents = ref([
-  { time: '10:32', title: '西门快递点投诉集中', category: '设施', risk: '中', status: '处理中' },
-  { time: '09:15', title: '某宿舍楼停电问题', category: '宿舍', risk: '低', status: '已确认' },
-  { time: '昨天', title: '二食堂卫生投诉增加', category: '食堂', risk: '中', status: '待研判' },
-  { time: '昨天', title: '教学楼区域电动车乱停', category: '交通', risk: '低', status: '已确认' },
-  { time: '前天', title: '西门快递诈骗集中事件', category: '诈骗', risk: '高', status: '处理中' },
-])
+const recentEvents = ref<any[]>([])
+const alerts = ref<any[]>([])
 
-const alerts = ref([
-  { id: '', title: '21栋宿舍电路起火传闻', meta: '32条讨论 · 7月13日', risk: '高', triggerSummary: '高危信号词命中', matchedRuleCount: 1 },
-  { id: '', title: '二食堂卫生投诉集中', meta: '28条讨论 · 7月11日', risk: '中', triggerSummary: '同类讨论集中', matchedRuleCount: 1 },
-  { id: '', title: '校园交通拥堵讨论', meta: '18条讨论 · 7月12日', risk: '中', triggerSummary: '互动热度较高', matchedRuleCount: 1 },
-])
+const workbench = ref<any>({
+  summary: {
+    pendingReviewCount: 0,
+    activeAlertCount: 0,
+    dueSoonCount: 0,
+    overdueCount: 0,
+    dataIssueCount: 0,
+  },
+  pendingReviews: [],
+  deadlineEvents: [],
+  dailyChanges: [],
+  dataStatus: {
+    status: '检查中',
+    latestDataAt: '',
+    ageHours: -1,
+    missingContentCount: 0,
+    message: '正在读取数据状态',
+  },
+})
 
 const trendData = ref<any>(null)
 const categoryDistribution = ref<any>(null)
@@ -62,15 +73,19 @@ const trendOpt = computed(() => {
     if (Array.isArray(td.posts)) s[0].data = td.posts
     if (Array.isArray(td.events)) s[1].data = td.events
     if (Array.isArray(td.highRisk)) s[2].data = td.highRisk
-    if (Array.isArray(td.labels)) base.xAxis.data = td.labels
+    if (Array.isArray(td.labels ?? td.days)) base.xAxis.data = td.labels ?? td.days
+  } else {
+    base.series.forEach((series: any) => { series.data = [] })
   }
   return base
 })
 
 // 议题分布：API 数据覆盖环形图
 const donutOpt = computed(() => {
-  const base = donutOption() as any
   const cd = categoryDistribution.value
+  const categoryCount = Array.isArray(cd) ? cd.length : 0
+  const base = donutOption(categoryCount) as any
+  base.series[0].data = []
   if (Array.isArray(cd) && cd.length) {
     base.series[0].data = cd.map((item: any, i: number) => ({
       value: item.value ?? item.count ?? 0,
@@ -89,6 +104,7 @@ function unwrap(res: any) {
 // 加载仪表盘数据，isManual 标记是否为手动刷新（仅在手动刷新时弹出成功提示）
 async function loadDashboard(isManual = false) {
   loading.value = true
+  loadError.value = ''
   try {
     const res: any = await dashboardApi.get()
     const d = unwrap(res) || {}
@@ -107,8 +123,9 @@ async function loadDashboard(isManual = false) {
       }))
     }
     // 最近事件
-    if (Array.isArray(d.recentEvents) && d.recentEvents.length) {
+    if (Array.isArray(d.recentEvents)) {
       recentEvents.value = d.recentEvents.map((e: any) => ({
+        id: e.id ?? '',
         time: e.time ?? e.createdAt ?? e.date ?? '',
         title: e.title ?? e.name ?? e.summary ?? '',
         category: e.category ?? e.type ?? '',
@@ -117,7 +134,7 @@ async function loadDashboard(isManual = false) {
       }))
     }
     // 实时预警
-    if (Array.isArray(d.alerts) && d.alerts.length) {
+    if (Array.isArray(d.alerts)) {
       alerts.value = d.alerts.map((a: any) => ({
         id: a.id ?? '',
         title: a.title ?? a.name ?? '',
@@ -130,6 +147,15 @@ async function loadDashboard(isManual = false) {
         matchedRuleCount: Number(a.matchedRuleCount ?? 0),
       }))
     }
+    if (d.workbench && typeof d.workbench === 'object') {
+      workbench.value = {
+        summary: { ...workbench.value.summary, ...(d.workbench.summary || {}) },
+        pendingReviews: Array.isArray(d.workbench.pendingReviews) ? d.workbench.pendingReviews : [],
+        deadlineEvents: Array.isArray(d.workbench.deadlineEvents) ? d.workbench.deadlineEvents : [],
+        dailyChanges: Array.isArray(d.workbench.dailyChanges) ? d.workbench.dailyChanges : [],
+        dataStatus: { ...workbench.value.dataStatus, ...(d.workbench.dataStatus || {}) },
+      }
+    }
     // 图表数据
     if (d.trendData) trendData.value = d.trendData
     if (d.categoryDistribution) categoryDistribution.value = d.categoryDistribution
@@ -138,7 +164,8 @@ async function loadDashboard(isManual = false) {
       toast.success('数据已更新')
     }
   } catch (err) {
-    console.warn('Dashboard 数据加载失败，使用默认数据', err)
+    console.warn('Dashboard 数据加载失败', err)
+    loadError.value = '总览数据暂时无法获取，请检查后端服务后重试。'
   } finally {
     loading.value = false
   }
@@ -151,6 +178,40 @@ onMounted(() => {
 function openAlert(id: string) {
   if (id) router.push(`/events/${id}`)
 }
+
+function openPendingReviews() {
+  router.push({ path: '/monitoring', query: { reviewStatus: '待复核', sortBy: 'risk' } })
+}
+
+function openEvent(id?: string) {
+  if (id) router.push(`/events/${id}`)
+  else router.push('/events')
+}
+
+function formatDateTime(value: unknown) {
+  if (!value) return '暂无记录'
+  const date = new Date(String(value))
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function changeText(item: any) {
+  const difference = Number(item.difference || 0)
+  if (difference > 0) return `较昨日 +${difference}${item.unit || ''}`
+  if (difference < 0) return `较昨日 ${difference}${item.unit || ''}`
+  return '较昨日持平'
+}
+
+function changeClass(item: any) {
+  return item.direction === 'up' ? 'text-rose-600 bg-rose-50'
+    : item.direction === 'down' ? 'text-emerald-600 bg-emerald-50'
+      : 'text-slate-600 bg-slate-100'
+}
 </script>
 
 <template>
@@ -161,6 +222,12 @@ function openAlert(id: string) {
     </div>
     <!-- 加载状态 -->
     <LoadingSpinner v-if="loading" />
+    <ErrorState
+      v-else-if="loadError"
+      title="舆情总览加载失败"
+      :message="loadError"
+      @retry="loadDashboard(false)"
+    />
     <!-- 统计卡片 -->
     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
       <div
@@ -189,6 +256,157 @@ function openAlert(id: string) {
         <div class="h-10 mt-3 -mx-1">
           <BaseChart :option="sparklineOption(s.spark, s.sparkColor)" height="100%" />
         </div>
+      </div>
+    </div>
+
+    <!-- 今日工作台：把需要处理的事项放在图表之前 -->
+    <section class="card card-pad border-t-4 border-t-brand-500">
+      <div class="flex items-start justify-between gap-4 flex-wrap mb-5">
+        <div>
+          <h2 class="section-title !text-[18px]">今日工作台</h2>
+          <p class="section-sub mt-1">先处理待复核、风险预警和临近截止事项，再查看趋势分析。</p>
+        </div>
+        <button
+          class="inline-flex items-center gap-2 px-3 py-2 text-sm border"
+          :class="workbench.dataStatus.status === '正常'
+            ? 'text-emerald-700 bg-emerald-50 border-emerald-100'
+            : 'text-amber-800 bg-amber-50 border-amber-200'"
+          @click="router.push('/data')"
+        >
+          <span :class="['w-2 h-2 rounded-full', workbench.dataStatus.status === '正常' ? 'bg-emerald-500' : 'bg-amber-500']"></span>
+          数据状态：{{ workbench.dataStatus.status }}
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <button class="workbench-task" @click="openPendingReviews">
+          <span class="workbench-icon bg-brand-50 text-brand-600"><AppIcon name="radar" :size="20" /></span>
+          <span class="min-w-0 text-left">
+            <span class="block text-2xl font-bold text-slate-900">{{ workbench.summary.pendingReviewCount }}</span>
+            <span class="block text-sm font-medium text-slate-700 mt-0.5">待复核帖子</span>
+            <span class="block text-xs text-slate-500 mt-1">按风险优先进入队列</span>
+          </span>
+          <AppIcon name="arrow-right" :size="16" class="ml-auto text-slate-400" />
+        </button>
+        <button class="workbench-task" @click="openEvent()">
+          <span class="workbench-icon bg-rose-50 text-rose-600"><AppIcon name="siren" :size="20" /></span>
+          <span class="min-w-0 text-left">
+            <span class="block text-2xl font-bold text-slate-900">{{ workbench.summary.activeAlertCount }}</span>
+            <span class="block text-sm font-medium text-slate-700 mt-0.5">待处理预警</span>
+            <span class="block text-xs text-slate-500 mt-1">中高风险且尚未关闭</span>
+          </span>
+          <AppIcon name="arrow-right" :size="16" class="ml-auto text-slate-400" />
+        </button>
+        <button class="workbench-task" @click="openEvent()">
+          <span class="workbench-icon bg-amber-50 text-amber-600"><AppIcon name="clock" :size="20" /></span>
+          <span class="min-w-0 text-left">
+            <span class="block text-2xl font-bold text-slate-900">
+              {{ Number(workbench.summary.dueSoonCount) + Number(workbench.summary.overdueCount) }}
+            </span>
+            <span class="block text-sm font-medium text-slate-700 mt-0.5">截止事项</span>
+            <span class="block text-xs text-slate-500 mt-1">
+              {{ workbench.summary.overdueCount }} 条超时 · {{ workbench.summary.dueSoonCount }} 条临近
+            </span>
+          </span>
+          <AppIcon name="arrow-right" :size="16" class="ml-auto text-slate-400" />
+        </button>
+        <button class="workbench-task" @click="router.push('/data')">
+          <span class="workbench-icon bg-slate-100 text-slate-600"><AppIcon name="database" :size="20" /></span>
+          <span class="min-w-0 text-left">
+            <span class="block text-2xl font-bold text-slate-900">{{ workbench.summary.dataIssueCount }}</span>
+            <span class="block text-sm font-medium text-slate-700 mt-0.5">数据状态事项</span>
+            <span class="block text-xs text-slate-500 mt-1">检查数据是否持续更新</span>
+          </span>
+          <AppIcon name="arrow-right" :size="16" class="ml-auto text-slate-400" />
+        </button>
+      </div>
+    </section>
+
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+      <section class="card card-pad">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 class="section-title">优先复核队列</h3>
+            <p class="section-sub mt-1">按最终风险标签和传播热度排序</p>
+          </div>
+          <button class="btn-link text-sm" @click="openPendingReviews">进入全部待复核 →</button>
+        </div>
+        <div v-if="workbench.pendingReviews.length" class="divide-y divide-slate-100">
+          <button
+            v-for="item in workbench.pendingReviews"
+            :key="item.id"
+            class="w-full flex items-center gap-3 py-3.5 text-left hover:bg-slate-50 transition-colors"
+            @click="router.push(`/monitoring/${item.id}`)"
+          >
+            <span :class="['badge flex-shrink-0', riskBadge(item.risk)]">{{ item.risk }}风险</span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-[15px] font-medium text-slate-800 truncate">{{ item.title }}</span>
+              <span class="block text-xs text-slate-500 mt-1">{{ item.category }} · 热度 {{ item.heat }}</span>
+            </span>
+            <AppIcon name="arrow-right" :size="15" class="text-slate-400" />
+          </button>
+        </div>
+        <div v-else class="py-8 text-center text-sm text-slate-500">当前没有待复核帖子</div>
+      </section>
+
+      <div class="space-y-5">
+        <section class="card card-pad">
+          <div class="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 class="section-title">今日异常变化</h3>
+              <p class="section-sub mt-1">与昨日同口径数据比较</p>
+            </div>
+            <span class="badge badge-neutral">今日 / 昨日</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div v-for="item in workbench.dailyChanges" :key="item.label" class="border border-slate-100 bg-slate-50 p-4">
+              <div class="text-sm text-slate-600">{{ item.label }}</div>
+              <div class="flex items-end gap-2 mt-2">
+                <span class="text-2xl font-bold text-slate-900">{{ item.today }}</span>
+                <span class="text-xs text-slate-500 mb-1">{{ item.unit }}</span>
+              </div>
+              <div :class="['inline-block text-xs px-2 py-1 mt-2', changeClass(item)]">{{ changeText(item) }}</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card card-pad">
+          <div class="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 class="section-title">截止与数据状态</h3>
+              <p class="section-sub mt-1">优先展示已超时和未来48小时到期事件</p>
+            </div>
+            <button class="btn-link text-sm" @click="router.push('/data')">数据管理 →</button>
+          </div>
+          <div
+            class="border px-4 py-3 mb-3"
+            :class="workbench.dataStatus.status === '正常'
+              ? 'border-emerald-100 bg-emerald-50 text-emerald-800'
+              : 'border-amber-200 bg-amber-50 text-amber-900'"
+          >
+            <div class="text-sm font-medium">{{ workbench.dataStatus.message }}</div>
+            <div class="text-xs mt-1 opacity-80">
+              最新数据：{{ formatDateTime(workbench.dataStatus.latestDataAt) }} · 正文缺失 {{ workbench.dataStatus.missingContentCount }} 条
+            </div>
+          </div>
+          <div v-if="workbench.deadlineEvents.length" class="space-y-2">
+            <button
+              v-for="event in workbench.deadlineEvents"
+              :key="event.id"
+              class="w-full flex items-center gap-3 border border-slate-100 px-3.5 py-3 text-left hover:bg-slate-50"
+              @click="openEvent(event.id)"
+            >
+              <span :class="['badge flex-shrink-0', event.overdue ? 'badge-high' : 'badge-warn']">
+                {{ event.overdue ? '已超时' : '48小时内' }}
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium text-slate-800 truncate">{{ event.title }}</span>
+                <span class="block text-xs text-slate-500 mt-1">{{ event.assignee }} · {{ formatDateTime(event.dueAt) }}</span>
+              </span>
+            </button>
+          </div>
+          <div v-else class="text-sm text-slate-500 py-2">暂无已超时或未来48小时到期的事件</div>
+        </section>
       </div>
     </div>
 
@@ -271,6 +489,7 @@ function openAlert(id: string) {
               v-for="e in recentEvents"
               :key="e.title"
               class="hover:bg-slate-50/60 cursor-pointer transition-colors"
+              @click="openEvent(e.id)"
             >
               <td class="text-slate-500 text-xs whitespace-nowrap">{{ e.time }}</td>
               <td class="text-slate-800 font-medium truncate">{{ e.title }}</td>
@@ -291,3 +510,31 @@ function openAlert(id: string) {
     <TrendAnalysis />
   </div>
 </template>
+
+<style scoped>
+.workbench-task {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 112px;
+  padding: 16px;
+  border: 1px solid rgb(226 232 240);
+  background: rgb(248 250 252 / 0.7);
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.workbench-task:hover {
+  background: white;
+  border-color: rgb(148 163 184);
+  transform: translateY(-1px);
+}
+
+.workbench-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+}
+</style>
