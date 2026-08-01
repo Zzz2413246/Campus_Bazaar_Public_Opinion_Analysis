@@ -1,126 +1,171 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
-import AppIcon from '../components/AppIcon.vue'
-import { assistantApi } from '@/utils/api'
-import { toast } from '@/utils/toast'
+import { nextTick, onMounted, ref, watch } from 'vue'
+import AppIcon from '@/components/AppIcon.vue'
+import AssistantMessageContent from '@/components/AssistantMessageContent.vue'
+import { useAssistantChat } from '@/composables/useAssistantChat'
 
 const inputText = ref('')
-const thinking = ref(false)
+const chatArea = ref<HTMLElement | null>(null)
+const {
+  messages,
+  thinking,
+  status,
+  latestFollowUps,
+  loadStatus,
+  sendMessage: submit,
+  retryLast,
+  clearConversation,
+  copyMessage,
+} = useAssistantChat()
 
-interface Message { role: 'user' | 'assistant'; content: string; time: string }
-
-const messages = ref<Message[]>([{
-  role: 'assistant',
-  content: '你好！我是校园安全智能助手\n\n我可以帮你查询和分析校园安全相关数据，比如：\n· 最近有哪些值得关注的安全问题\n· 哪些议题增长最快\n· 特定事件的风险判断依据\n· 生成简报\n\n请问你想了解什么？',
-  time: '14:30',
-}])
-
-const suggestQuestions = [
-  '最近一周有哪些值得关注的校园安全问题？',
-  '哪些校园安全议题增长最快？',
-  '最近宿舍相关问题主要集中在哪些方面？',
-  '为什么西门诈骗事件被判断为高风险？',
-  '生成一份本周校园安全舆情简报',
-]
-
-function unwrap(res: any) {
-  if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
-  return res
-}
-
-function nowTime() {
-  return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-}
+onMounted(loadStatus)
+watch([() => messages.value.length, thinking], scrollToBottom)
 
 async function sendMessage(text?: string) {
-  const msg = text || inputText.value
-  if (!msg.trim() || thinking.value) return
-  messages.value.push({ role: 'user', content: msg, time: nowTime() })
+  const question = (text ?? inputText.value).trim()
+  if (!question) return
   inputText.value = ''
-  thinking.value = true
-  nextTick(() => { document.getElementById('chat-end')?.scrollIntoView({ behavior: 'smooth' }) })
-  try {
-    const res: any = await assistantApi.query(msg)
-    const d = unwrap(res)
-    const answer = typeof d === 'string' ? d
-      : (d?.answer ?? d?.content ?? d?.reply ?? '抱歉，暂时无法获取回答，请稍后再试。')
-    messages.value.push({ role: 'assistant', content: answer, time: nowTime() })
-  } catch (err) {
-    console.warn('助手请求失败', err)
-    // 发送消息失败时通过 toast 提示
-    toast.error('发送失败，请稍后重试')
-    messages.value.push({
-      role: 'assistant',
-      content: `收到你的问题：「${msg}」\n\n抱歉，当前无法连接分析服务，请稍后再试。`,
-      time: nowTime(),
-    })
-  } finally {
-    thinking.value = false
-    nextTick(() => { document.getElementById('chat-end')?.scrollIntoView({ behavior: 'smooth' }) })
-  }
+  await submit(question)
+}
+
+function handleEnter(event: KeyboardEvent) {
+  if (event.shiftKey) return
+  event.preventDefault()
+  sendMessage()
+}
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (chatArea.value) chatArea.value.scrollTop = chatArea.value.scrollHeight
+  })
 }
 </script>
 
 <template>
-  <div class="max-w-4xl mx-auto h-[calc(100vh-9rem)] flex flex-col">
-    <!-- 助手标识 -->
+  <div class="max-w-5xl mx-auto h-[calc(100vh-8.5rem)] min-h-[560px] flex flex-col">
     <div class="flex items-center gap-3 mb-4 px-1">
-      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white shadow-lg shadow-brand-600/30">
-        <AppIcon name="bot" :size="22" />
+      <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white shadow-lg shadow-brand-600/25">
+        <AppIcon name="bot" :size="23" />
       </div>
-      <div>
+      <div class="min-w-0">
         <div class="text-base font-semibold text-slate-800">校园安全智能助手</div>
-        <div class="text-xs text-slate-500 flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-          基于平台结构化数据与 LLM · 在线
+        <div class="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
+          <span :class="['w-1.5 h-1.5 rounded-full', status?.online === false ? 'bg-rose-500' : 'bg-emerald-500']"></span>
+          <span>{{ status?.llmEnabled ? `${status.model} · 平台数据增强` : '本地数据分析引擎' }}</span>
+          <span v-if="status?.dataAsOf" class="hidden sm:inline">· 数据截至 {{ status.dataAsOf }}</span>
         </div>
       </div>
+      <button
+        v-if="messages.length > 1"
+        class="ml-auto inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+        @click="clearConversation"
+      >
+        <AppIcon name="refresh" :size="14" /> 新对话
+      </button>
     </div>
 
-    <!-- 对话区域 -->
-    <div class="flex-1 overflow-y-auto space-y-5 pr-1">
-      <div v-for="(msg, i) in messages" :key="i" :class="['flex gap-3', msg.role === 'user' ? 'justify-end' : 'justify-start']">
-        <div v-if="msg.role === 'assistant'" class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center flex-shrink-0 text-white shadow-sm"><AppIcon name="bot" :size="18" /></div>
-        <div :class="['max-w-[75%] px-4 py-3', msg.role === 'user' ? 'bg-gradient-to-br from-brand-600 to-brand-500 text-white text-sm shadow-sm shadow-brand-600/25' : 'bg-white border border-slate-200/70 shadow-sm text-sm text-slate-700']">
-          <div class="whitespace-pre-wrap leading-relaxed">{{ msg.content }}</div>
-          <div :class="['text-xs mt-2', msg.role === 'user' ? 'text-brand-100' : 'text-slate-400']">{{ msg.time }}</div>
+    <div ref="chatArea" class="flex-1 overflow-y-auto space-y-7 pr-1 pb-3">
+      <div
+        v-for="message in messages"
+        :key="message.id"
+        :class="[
+          'assistant-message-row flex gap-3 group',
+          message.role === 'user'
+            ? 'assistant-message-row--user justify-end'
+            : 'assistant-message-row--assistant justify-start',
+        ]"
+      >
+        <div v-if="message.role === 'assistant'" class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center flex-shrink-0 text-white shadow-sm">
+          <AppIcon name="bot" :size="18" />
         </div>
-        <div v-if="msg.role === 'user'" class="w-9 h-9 rounded-xl bg-slate-200 flex items-center justify-center flex-shrink-0 text-slate-500"><AppIcon name="smile" :size="18" /></div>
+        <div :class="[
+          'max-w-[82%] sm:max-w-[75%] px-5 py-4 text-[15px] leading-6',
+          message.role === 'user'
+            ? 'rounded-2xl rounded-br-md bg-gradient-to-br from-brand-600 to-brand-500 text-white shadow-sm shadow-brand-600/25'
+            : 'rounded-2xl rounded-tl-md bg-white border border-slate-200/70 shadow-sm text-slate-700',
+        ]">
+          <AssistantMessageContent :content="message.content" />
+          <div v-if="message.sources?.length" class="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-100">
+            <RouterLink
+              v-for="source in message.sources"
+              :key="source.route"
+              :to="source.route"
+              class="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800"
+            >
+              <AppIcon name="database" :size="12" /> {{ source.label }}
+            </RouterLink>
+          </div>
+          <div :class="['flex items-center gap-2 text-[11px] mt-2', message.role === 'user' ? 'text-brand-100' : 'text-slate-400']">
+            <span>{{ message.time }}</span>
+            <span v-if="message.engine === 'llm'">· AI 数据增强</span>
+            <button
+              v-if="message.role === 'assistant'"
+              class="ml-auto opacity-0 group-hover:opacity-100 inline-flex items-center gap-1 hover:text-slate-700 transition-all"
+              @click="copyMessage(message.content)"
+            >
+              <AppIcon name="copy" :size="12" /> 复制
+            </button>
+          </div>
+        </div>
+        <div v-if="message.role === 'user'" class="w-9 h-9 rounded-xl bg-slate-200 flex items-center justify-center flex-shrink-0 text-slate-500">
+          <AppIcon name="user" :size="17" />
+        </div>
       </div>
+
       <div v-if="thinking" class="flex gap-3 justify-start">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center flex-shrink-0 text-white shadow-sm"><AppIcon name="bot" :size="18" /></div>
-        <div class="max-w-[75%] px-4 py-3 bg-white border border-slate-200/70 shadow-sm text-sm text-slate-400">
-          <span class="inline-flex items-center gap-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:0ms"></span>
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:150ms"></span>
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style="animation-delay:300ms"></span>
-            正在思考...
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center flex-shrink-0 text-white">
+          <AppIcon name="bot" :size="18" />
+        </div>
+        <div class="px-5 py-4 rounded-2xl rounded-tl-md bg-white border border-slate-200/70 shadow-sm text-sm text-slate-500">
+          <span class="inline-flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:150ms]"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:300ms]"></span>
+            正在读取平台数据…
           </span>
         </div>
       </div>
-      <div id="chat-end"></div>
     </div>
 
-    <!-- 推荐问题 -->
-    <div v-if="messages.length <= 1" class="flex flex-wrap gap-2 py-4">
-      <span
-        v-for="q in suggestQuestions"
-        :key="q"
-        @click="sendMessage(q)"
-        class="text-sm px-3.5 py-2 bg-white border border-slate-200/70 shadow-sm text-slate-600 cursor-pointer hover:bg-brand-50 hover:text-brand-600 hover:border-brand-200 transition-all"
-      >{{ q }}</span>
-    </div>
-
-    <!-- 输入框 -->
-    <div class="bg-white border border-slate-200/70 shadow-sm shadow-slate-200/50 p-2 flex gap-2 mt-3">
-      <input
-        v-model="inputText"
-        @keyup.enter="sendMessage()"
-        type="text"
-        placeholder="输入问题，查询平台中的校园安全数据..."
-        class="flex-1 px-3 py-2 text-sm outline-none bg-transparent"
+    <div v-if="latestFollowUps.length && !thinking" class="flex gap-2 py-3 overflow-x-auto">
+      <button
+        v-for="question in latestFollowUps"
+        :key="question"
+        class="shrink-0 text-xs sm:text-sm px-4 py-2 rounded-full bg-white border border-slate-200/70 shadow-sm text-slate-600 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-200 transition-all"
+        @click="sendMessage(question)"
       >
-      <button @click="sendMessage()" :disabled="thinking" class="btn btn-primary"><AppIcon name="send" :size="15" /> 发送</button>
+        {{ question }}
+      </button>
     </div>
+
+    <div class="rounded-2xl bg-white border border-slate-200/70 shadow-sm shadow-slate-200/50 p-2 flex items-end gap-2 focus-within:border-brand-300 focus-within:ring-4 focus-within:ring-brand-100/60 transition-all">
+      <textarea
+        v-model="inputText"
+        rows="1"
+        maxlength="1000"
+        placeholder="输入问题；Enter 发送，Shift + Enter 换行"
+        class="flex-1 min-h-10 max-h-28 px-3 py-2 text-[15px] leading-6 outline-none bg-transparent resize-y placeholder:text-slate-400"
+        @keydown.enter="handleEnter"
+      ></textarea>
+      <button
+        v-if="messages.at(-1)?.failed"
+        class="btn"
+        :disabled="thinking"
+        @click="retryLast"
+      >
+        <AppIcon name="refresh" :size="15" /> 重试
+      </button>
+      <button @click="sendMessage()" :disabled="thinking || !inputText.trim()" class="btn btn-primary">
+        <AppIcon name="send" :size="15" /> 发送
+      </button>
+    </div>
+    <div class="text-[11px] text-slate-400 text-center mt-2">回答基于平台数据生成，重要处置决策请结合人工研判。</div>
   </div>
 </template>
+
+<style scoped>
+.assistant-message-row--assistant + .assistant-message-row--user,
+.assistant-message-row--user + .assistant-message-row--assistant {
+  margin-top: 2.75rem !important;
+}
+</style>

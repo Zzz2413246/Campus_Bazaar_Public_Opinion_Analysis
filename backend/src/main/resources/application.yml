@@ -33,6 +33,17 @@ spring:
 
 # 数据文件路径
 yuqing:
+  ai:
+    # OpenAI-compatible /chat/completions API. Leave blank to use the local
+    # structured-data engine; never commit a real key to this file.
+    api-key: ${YUQING_AI_API_KEY:}
+    base-url: ${YUQING_AI_BASE_URL:https://vip.dmxapi.com/v1}
+    model: ${YUQING_AI_MODEL:dsV4pro}
+    timeout-seconds: ${YUQING_AI_TIMEOUT_SECONDS:90}
+    # Keep interactive chat fast. DMXAPI notes that some Qwen models enable
+    # reasoning by default unless this parameter is explicitly set to false.
+    enable-thinking: ${YUQING_AI_ENABLE_THINKING:false}
+    max-tokens: ${YUQING_AI_MAX_TOKENS:600}
   auth:
     nickname: ${YUQING_AUTH_NICKNAME:管理员}
     password: ${YUQING_AUTH_PASSWORD:123456}

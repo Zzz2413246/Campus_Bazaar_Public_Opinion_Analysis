@@ -4,16 +4,20 @@ import com.nankai.yuqing.model.EventEntity;
 import com.nankai.yuqing.model.Post;
 import com.nankai.yuqing.repository.EventRepository;
 import com.nankai.yuqing.repository.PostRepository;
+import com.nankai.yuqing.service.AssistantLlmClient;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
  * 智能问答助手接口
- * 基于结构化数据生成回答，不依赖外部 LLM
+ * 基于结构化数据生成可追溯回答；配置兼容 API 后可由 LLM 优化表达。
  */
 @RestController
 @RequestMapping("/api/assistant")
@@ -21,52 +25,107 @@ public class AssistantController {
 
     private final PostRepository postRepository;
     private final EventRepository eventRepository;
+    private final AssistantLlmClient llmClient;
 
-    public AssistantController(PostRepository postRepository, EventRepository eventRepository) {
+    public AssistantController(PostRepository postRepository,
+                               EventRepository eventRepository,
+                               AssistantLlmClient llmClient) {
         this.postRepository = postRepository;
         this.eventRepository = eventRepository;
+        this.llmClient = llmClient;
     }
 
     @PostMapping("/query")
-    public Map<String, Object> query(@RequestBody Map<String, String> body) {
-        String question = body.getOrDefault("question", "").toLowerCase();
+    public Map<String, Object> query(@RequestBody Map<String, Object> body) {
+        String rawQuestion = Objects.toString(body.get("question"), "").trim();
+        if (rawQuestion.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "问题不能为空");
+        }
+        if (rawQuestion.length() > 1000) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "问题不能超过 1000 字");
+        }
+        String question = rawQuestion.toLowerCase(Locale.ROOT);
+        List<Map<String, String>> history = parseHistory(body.get("history"));
 
         String answer;
         String type = "summary";
-        List<String> sources = new ArrayList<>();
+        List<Map<String, String>> sources = new ArrayList<>();
+        List<String> followUps;
 
-        if (question.contains("值得关注") || question.contains("安全问题") || question.contains("最近")) {
-            answer = answerRecentIssues();
-            type = "summary";
-        } else if (question.contains("增长最快") || question.contains("增长")) {
+        // Specific intents must be checked before broad words such as “最近” and “风险”.
+        if (question.contains("简报") || question.contains("周报") || question.contains("日报")) {
+            answer = answerBriefing();
+            type = "report";
+            sources.add(source("报告中心", "/reports"));
+            followUps = List.of("列出当前高风险事件", "本周负面情绪占比是多少？");
+        } else if (question.contains("增长最快") || question.contains("增长") || question.contains("上升")) {
             answer = answerFastestGrowing();
             type = "analysis";
+            sources.add(source("趋势分析", "/trends"));
+            followUps = List.of("增长最快议题有哪些风险？", "生成一份本周舆情简报");
         } else if (question.contains("宿舍")) {
             answer = answerDormIssues();
             type = "analysis";
-        } else if (question.contains("高风险") || question.contains("风险")) {
-            answer = answerHighRisk();
-            type = "analysis";
-        } else if (question.contains("简报") || question.contains("周报") || question.contains("日报")) {
-            answer = answerBriefing();
-            type = "report";
+            sources.add(source("帖子监测", "/monitoring"));
+            followUps = List.of("宿舍问题中哪些风险最高？", "给出后勤处置建议");
         } else if (question.contains("诈骗") || question.contains("骗")) {
             answer = answerFraud();
             type = "analysis";
+            sources.add(source("诈骗相关帖子", "/monitoring?category=诈骗与财产安全"));
+            followUps = List.of("当前有哪些高风险诈骗事件？", "给出防诈骗宣传建议");
+        } else if (question.contains("高风险") || question.contains("风险")) {
+            answer = answerHighRisk();
+            type = "analysis";
+            sources.add(source("事件管理", "/events"));
+            followUps = List.of("这些事件的风险判断依据是什么？", "生成处置优先级建议");
         } else if (question.contains("情绪") || question.contains("情感")) {
             answer = answerEmotion();
             type = "analysis";
+            sources.add(source("趋势分析", "/trends"));
+            followUps = List.of("哪些议题的负面情绪最多？", "负面情绪是否正在上升？");
+        } else if (question.contains("值得关注") || question.contains("安全问题") || question.contains("最近")) {
+            answer = answerRecentIssues();
+            type = "summary";
+            sources.add(source("事件管理", "/events"));
+            sources.add(source("帖子监测", "/monitoring"));
+            followUps = List.of("当前有哪些高风险事件？", "哪些议题增长最快？");
         } else {
             answer = answerDefault();
             type = "default";
+            followUps = List.of("最近有哪些值得关注的安全问题？", "生成本周舆情简报");
+        }
+
+        boolean llmEnhanced = false;
+        if (llmClient.isEnabled()) {
+            Optional<String> enhanced = llmClient.answer(
+                rawQuestion, history, buildDataContext(), answer);
+            if (enhanced.isPresent()) {
+                answer = enhanced.get();
+                llmEnhanced = true;
+            }
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("answer", answer);
         result.put("type", type);
         result.put("sources", sources);
+        result.put("followUps", followUps);
+        result.put("engine", llmEnhanced ? "llm" : "structured");
+        result.put("model", llmEnhanced ? llmClient.modelName() : "本地数据分析引擎");
+        result.put("dataAsOf", latestDataTime());
         result.put("timestamp", LocalDateTime.now().toString());
         return result;
+    }
+
+    @GetMapping("/status")
+    public Map<String, Object> status() {
+        return Map.of(
+            "online", true,
+            "llmEnabled", llmClient.isEnabled(),
+            "engine", llmClient.isEnabled() ? "hybrid" : "structured",
+            "model", llmClient.modelName(),
+            "dataAsOf", latestDataTime()
+        );
     }
 
     /**
@@ -110,26 +169,54 @@ public class AssistantController {
      */
     private String answerFastestGrowing() {
         List<Post> posts = postRepository.findAll();
-        Map<String, Long> catCount = posts.stream()
-            .filter(p -> p.getSafetyCategory() != null)
-            .collect(Collectors.groupingBy(Post::getSafetyCategory, Collectors.counting()));
+        LocalDateTime anchor = posts.stream()
+            .map(Post::getPublishTime)
+            .filter(Objects::nonNull)
+            .max(LocalDateTime::compareTo)
+            .orElse(LocalDateTime.now());
+        LocalDateTime recentStart = anchor.minusDays(7);
+        LocalDateTime previousStart = anchor.minusDays(14);
+        Map<String, Long> recent = posts.stream()
+            .filter(p -> p.getPublishTime() != null && !p.getPublishTime().isBefore(recentStart))
+            .filter(p -> effectiveCategory(p) != null)
+            .collect(Collectors.groupingBy(this::effectiveCategory, Collectors.counting()));
+        Map<String, Long> previous = posts.stream()
+            .filter(p -> p.getPublishTime() != null
+                && !p.getPublishTime().isBefore(previousStart)
+                && p.getPublishTime().isBefore(recentStart))
+            .filter(p -> effectiveCategory(p) != null)
+            .collect(Collectors.groupingBy(this::effectiveCategory, Collectors.counting()));
 
         StringBuilder sb = new StringBuilder();
-        sb.append("根据分析，各类校园安全议题的讨论热度如下：\n\n");
+        sb.append("按数据最新时间向前对比两个 7 天周期，议题变化如下：\n\n");
 
-        List<Map.Entry<String, Long>> sorted = catCount.entrySet().stream()
-            .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+        List<String> sorted = recent.keySet().stream()
+            .sorted(Comparator
+                .<String>comparingLong(category -> recent.getOrDefault(category, 0L)
+                    - previous.getOrDefault(category, 0L))
+                .reversed()
+                .thenComparing(Comparator.comparingLong(
+                    (String category) -> recent.getOrDefault(category, 0L)).reversed()))
             .limit(5)
             .toList();
 
         int idx = 1;
-        for (Map.Entry<String, Long> e : sorted) {
-            sb.append(idx++).append(". ").append(e.getKey()).append("：").append(e.getValue()).append("条讨论\n");
+        for (String category : sorted) {
+            long current = recent.getOrDefault(category, 0L);
+            long before = previous.getOrDefault(category, 0L);
+            long delta = current - before;
+            sb.append(idx++).append(". **").append(category).append("**：")
+                .append(current).append(" 条，较前一周期")
+                .append(delta >= 0 ? "增加 " : "减少 ").append(Math.abs(delta)).append(" 条\n");
         }
 
         if (!sorted.isEmpty()) {
-            sb.append("\n**增长最快的议题**：").append(sorted.get(0).getKey());
-            sb.append("，共 ").append(sorted.get(0).getValue()).append("条相关讨论，建议重点关注。");
+            String top = sorted.get(0);
+            long delta = recent.getOrDefault(top, 0L) - previous.getOrDefault(top, 0L);
+            sb.append("\n**增长最快的议题**：").append(top)
+                .append("，净增 ").append(delta).append(" 条。");
+        } else {
+            sb.append("当前两个统计周期内没有足够的分类数据。");
         }
         return sb.toString();
     }
@@ -284,13 +371,83 @@ public class AssistantController {
      * 默认回答
      */
     private String answerDefault() {
-        return "我可以帮您分析校园安全舆情相关的问题，例如：\n\n" +
+        return "这个问题暂时无法仅靠当前结构化数据准确回答。你可以换一种更具体的问法，例如：\n\n" +
                "- 最近一周有哪些值得关注的校园安全问题？\n" +
                "- 哪些校园安全议题增长最快？\n" +
                "- 最近宿舍相关问题主要集中在哪些方面？\n" +
                "- 当前有哪些高风险事件？\n" +
                "- 生成一份本周校园安全舆情简报\n" +
                "- 诈骗相关问题有哪些？\n\n" +
-               "请提出您的问题。";
+               "配置大模型 API 后，我还可以在平台数据范围内理解更灵活的问法和连续追问。";
+    }
+
+    private List<Map<String, String>> parseHistory(Object raw) {
+        if (!(raw instanceof Collection<?> collection)) return List.of();
+        List<Map<String, String>> result = new ArrayList<>();
+        for (Object item : collection) {
+            if (!(item instanceof Map<?, ?> value)) continue;
+            String role = Objects.toString(value.get("role"), "");
+            String content = Objects.toString(value.get("content"), "").trim();
+            if (("user".equals(role) || "assistant".equals(role)) && !content.isBlank()) {
+                result.add(Map.of("role", role, "content",
+                    content.substring(0, Math.min(content.length(), 3000))));
+            }
+        }
+        return result.stream().skip(Math.max(0, result.size() - 8)).toList();
+    }
+
+    private Map<String, String> source(String label, String route) {
+        return Map.of("label", label, "route", route);
+    }
+
+    private String effectiveCategory(Post post) {
+        return post.getReviewedCategory() != null && !post.getReviewedCategory().isBlank()
+            ? post.getReviewedCategory() : post.getSafetyCategory();
+    }
+
+    private String latestDataTime() {
+        return postRepository.findAll().stream()
+            .map(Post::getPublishTime)
+            .filter(Objects::nonNull)
+            .max(LocalDateTime::compareTo)
+            .map(value -> value.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")))
+            .orElse("暂无数据");
+    }
+
+    /**
+     * Only aggregate and event-level fields are sent to the optional model.
+     * Raw post authors and other personal identifiers are intentionally excluded.
+     */
+    private String buildDataContext() {
+        List<Post> posts = postRepository.findAll();
+        List<EventEntity> events = eventRepository.findAllByOrderByRiskScoreDescCreatedAtDesc();
+        Map<String, Long> categories = posts.stream()
+            .filter(post -> effectiveCategory(post) != null)
+            .collect(Collectors.groupingBy(this::effectiveCategory, Collectors.counting()));
+        Map<String, Long> emotions = posts.stream()
+            .map(post -> post.getReviewedEmotion() != null ? post.getReviewedEmotion() : post.getEmotion())
+            .filter(Objects::nonNull)
+            .collect(Collectors.groupingBy(value -> value, Collectors.counting()));
+
+        StringBuilder context = new StringBuilder();
+        context.append("数据截至：").append(latestDataTime()).append("\n")
+            .append("帖子总量：").append(posts.size()).append("\n")
+            .append("事件总量：").append(events.size()).append("\n")
+            .append("分类统计：").append(categories).append("\n")
+            .append("情绪统计：").append(emotions).append("\n")
+            .append("高风险事件数：")
+            .append(events.stream().filter(event -> "高".equals(event.getRisk())).count())
+            .append("\n重点事件：\n");
+        for (EventEntity event : events.stream().limit(8).toList()) {
+            context.append("- ").append(event.getTitle())
+                .append("；类别=").append(event.getCategory())
+                .append("；风险=").append(event.getRisk())
+                .append("；评分=").append(event.getRiskScore())
+                .append("；讨论量=").append(event.getPostCount())
+                .append("；范围=").append(event.getAffectedRange())
+                .append("；摘要=").append(event.getSummary())
+                .append("\n");
+        }
+        return context.toString();
     }
 }

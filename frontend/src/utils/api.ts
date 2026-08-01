@@ -126,7 +126,9 @@ export const settingsApi = {
 
 // 智能助手
 export const assistantApi = {
-  query: (question: string) => http.post('/assistant/query', { question }),
+  query: (question: string, history: Array<{ role: 'user' | 'assistant'; content: string }> = []) =>
+    http.post('/assistant/query', { question, history }, { timeout: 120000 }),
+  status: () => http.get('/assistant/status'),
 }
 
 // 数据管理
