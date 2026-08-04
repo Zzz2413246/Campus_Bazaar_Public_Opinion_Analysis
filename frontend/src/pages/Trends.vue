@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import BaseChart from '../components/BaseChart.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
-import { emotionOption, stackAreaOption, barOption, palette } from '../utils/chartTheme'
+import { emotionOption, stackAreaOption, palette } from '../utils/chartTheme'
 import { trendsApi } from '@/utils/api'
 import { toast } from '@/utils/toast'
 
@@ -30,7 +30,6 @@ const loading = ref(false)
 
 const emotionData = ref<any>(null)
 const stackData = ref<any>(null)
-const sourceData = ref<any>(null)
 
 // 情绪变化趋势：API 数据覆盖正/中/负
 const emotionOpt = computed(() => {
@@ -70,33 +69,9 @@ const stackOpt = computed(() => {
   return base
 })
 
-// 各来源渠道对比：API 数据覆盖柱状数值
-const barOpt = computed(() => {
-  const base = barOption() as any
-  const sd = sourceData.value
-  if (sd) {
-    const series = (base.series as any[])[0]
-    if (Array.isArray(sd.values) && sd.values.length) {
-      series.data = sd.values.map((v: any, i: number) => {
-        const num = typeof v === 'number' ? v : (v?.value ?? v?.count ?? 0)
-        return { value: num, itemStyle: series.data[i % series.data.length]?.itemStyle }
-      })
-    } else if (Array.isArray(sd) && sd.length) {
-      series.data = sd.map((v: any, i: number) => ({
-        value: typeof v === 'number' ? v : (v?.value ?? v?.count ?? 0),
-        itemStyle: series.data[i % series.data.length]?.itemStyle,
-      }))
-    }
-    if (Array.isArray(sd.labels)) base.xAxis.data = sd.labels
-    else if (Array.isArray(sd) && sd.length && sd[0]?.name) base.xAxis.data = sd.map((x: any) => x.name)
-  }
-  return base
-})
-
 const charts = computed(() => [
   { title: '情绪变化趋势', sub: '折线图 · 正面 / 中性 / 负面', opt: emotionOpt.value },
-  { title: '各类议题热度变化', sub: '堆叠面积图 · 诈骗 / 治安 / 消防 / 交通 / 设施', opt: stackOpt.value },
-  { title: '各类帖子类型分布', sub: '柱状图 · 按安全类别统计', opt: barOpt.value },
+  { title: '各类议题热度变化', sub: '堆叠面积图 · 按最终安全分类统计', opt: stackOpt.value },
 ])
 
 function unwrap(res: any) {
@@ -120,7 +95,6 @@ async function loadTrends() {
     const d = unwrap(res) || {}
     if (d.emotionData) emotionData.value = d.emotionData
     if (d.stackData) stackData.value = d.stackData
-    if (d.sourceData) sourceData.value = d.sourceData
   } catch (err) {
     console.warn('趋势数据加载失败，使用默认数据', err)
   } finally {

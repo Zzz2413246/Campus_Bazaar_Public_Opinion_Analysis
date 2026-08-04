@@ -107,6 +107,16 @@ $env:YUQING_AI_TIMEOUT_SECONDS = "90"
 $env:YUQING_AI_ENABLE_THINKING = "false"
 $env:YUQING_AI_MAX_TOKENS = "600"
 
+$adminPassword = [Environment]::GetEnvironmentVariable("YUQING_AUTH_PASSWORD", "Process")
+if ([string]::IsNullOrWhiteSpace($adminPassword)) {
+    $securePassword = Read-Host "Enter the administrator password (input is hidden)" -AsSecureString
+    $adminPassword = [System.Net.NetworkCredential]::new("", $securePassword).Password
+}
+if ([string]::IsNullOrWhiteSpace($adminPassword) -or $adminPassword.Length -lt 8) {
+    throw "Administrator password must contain at least 8 characters."
+}
+$env:YUQING_AUTH_PASSWORD = $adminPassword
+
 Write-Host "Starting backend with AI enabled"
 Write-Host "AI base URL: $($env:YUQING_AI_BASE_URL)"
 Write-Host "AI model: $($env:YUQING_AI_MODEL)"

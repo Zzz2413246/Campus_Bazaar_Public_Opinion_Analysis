@@ -26,4 +26,12 @@ class AuthServiceTest {
         assertFalse(service.isValid("missing-token"));
         assertFalse(service.hasPermission("missing-token", "MANAGE_DATA"));
     }
+
+    @Test
+    void blankDeploymentPasswordNeverActsAsAPublicDefault() {
+        AuthService service = new AuthService("管理员", "", 24);
+
+        assertNull(service.login("管理员", "123456"));
+        assertNull(service.login("管理员", ""));
+    }
 }

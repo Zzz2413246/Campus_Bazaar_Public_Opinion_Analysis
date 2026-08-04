@@ -6,6 +6,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import { postApi, settingsApi } from '@/utils/api'
 import { toast } from '@/utils/toast'
 import { useRoute, useRouter } from 'vue-router'
+import { postCategoryOptions } from '@/utils/safetyCategories'
 
 const router = useRouter()
 const route = useRoute()
@@ -49,10 +50,7 @@ const page = ref(Math.max(1, Number(route.query.page || 1)))
 const size = ref(20)
 let requestController: AbortController | null = null
 let filterTimer: ReturnType<typeof setTimeout> | null = null
-const categoryOptions = ref<string[]>([
-  '诈骗与财产安全', '治安与人身安全', '消防与用电安全', '校园交通安全',
-  '宿舍设施问题', '食堂与餐饮问题', '突发事件', '其他',
-])
+const categoryOptions = ref<string[]>(postCategoryOptions())
 
 function unwrap(res: any) {
   if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
@@ -64,10 +62,10 @@ function mapPost(p: any) {
     ...p,
     id: p.id,
     title: p.title ?? '',
-    category: p.safetyCategory ?? p.category ?? '其他',
+    category: p.safetyCategory ?? p.category ?? '疑似主题无法确定',
     emotion: p.emotion ?? '中性',
     riskLevel: p.riskLevel ?? p.aiRiskLevel ?? '低',
-    riskLabelSource: p.riskLabelSource ?? '本地分析',
+    riskLabelSource: p.riskLabelSource ?? '外部最终分类',
     source: p.source ?? p.categoryName ?? '',
     comments: p.commentCount ?? (typeof p.comments === 'number' ? p.comments : 0),
     likes: p.likeCount ?? p.likes ?? 0,
@@ -84,6 +82,9 @@ function mapPost(p: any) {
     commentSuggestedCategory: p.commentSuggestedCategory ?? '',
     commentSuggestionCount: p.commentSuggestionCount ?? 0,
     analysisBasis: p.analysisBasis ?? '原帖文本',
+    screeningLabel: p.screeningLabel ?? '',
+    analysisReason: p.analysisReason ?? '',
+    discussionSummary: p.discussionSummary ?? '',
     reviewStatus: p.reviewStatus ?? '待复核',
     reviewer: p.reviewer ?? '',
     reviewedAt: p.reviewedAt ?? '',
@@ -294,7 +295,9 @@ async function loadCategories() {
   try {
     const res: any = await settingsApi.get()
     const d = unwrap(res) || {}
-    if (Array.isArray(d.categories) && d.categories.length) categoryOptions.value = d.categories.map(String)
+    if (Array.isArray(d.categories) && d.categories.length) {
+      categoryOptions.value = [...d.categories.map(String), '非安全内容']
+    }
   } catch (err) {
     console.warn('分类设置加载失败，使用默认分类', err)
   }

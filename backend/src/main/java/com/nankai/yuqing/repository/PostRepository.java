@@ -17,8 +17,8 @@ public interface PostRepository extends JpaRepository<Post, String> {
     @Query("SELECT p FROM Post p WHERE " +
            "(:keyword IS NULL OR p.title LIKE %:keyword% OR p.content LIKE %:keyword%) " +
            "AND (:category IS NULL " +
-           "  OR (:category = '其他' AND COALESCE(p.reviewedCategory, p.safetyCategory) IS NULL) " +
-           "  OR COALESCE(p.reviewedCategory, p.safetyCategory) = :category) " +
+           "  OR (:category = '非安全内容' AND p.screeningLabel = 'NON_SAFETY') " +
+           "  OR (:category <> '非安全内容' AND COALESCE(p.reviewedCategory, p.safetyCategory) = :category)) " +
            "AND (:emotion IS NULL OR COALESCE(p.reviewedEmotion, p.emotion) = :emotion) " +
            "AND (:source IS NULL OR p.categoryName = :source) " +
            "AND (:reviewStatus IS NULL " +

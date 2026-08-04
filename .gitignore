@@ -1,12 +1,16 @@
 # 敏感数据 / 原始抓取数据（含用户昵称、头像和帖子正文）
 posts*.json
 comments*.json
+[0-9]*.json
 backend/data/
 *.mv.db
 *.trace.db
 
 # 本机与私有配置
 .claude/
+.codex/
+.agents/
+settings.local.json
 .env
 .env.*
 !.env.example
@@ -42,3 +46,10 @@ npm-debug.log*
 # Generated output
 output/
 tmp/
+.ppt_build_final/
+
+# Word temp files
+~$*
+
+# Inspect artifacts
+*.inspect.ndjson

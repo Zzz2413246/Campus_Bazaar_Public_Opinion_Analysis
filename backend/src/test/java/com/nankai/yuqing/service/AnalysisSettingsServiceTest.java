@@ -83,10 +83,9 @@ class AnalysisSettingsServiceTest {
 
     private Map<String, Object> settingsPayload() {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("categories", List.of(
-            "诈骗与财产安全", "治安与人身安全", "消防与用电安全", "校园交通安全",
-            "宿舍设施问题", "食堂与餐饮问题", "突发事件", "其他", "网络与信息安全"
-        ));
+        List<String> categories = new ArrayList<>(SafetyCategoryStandard.CATEGORIES);
+        categories.add("网络与信息安全");
+        body.put("categories", categories);
         body.put("categoryRules", Map.of("网络与信息安全", List.of("账号泄露", "钓鱼邮件")));
         return body;
     }

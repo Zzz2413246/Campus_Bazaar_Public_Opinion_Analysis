@@ -174,6 +174,13 @@ public class DataImportService {
         log.info("重新分析完成");
     }
 
+    /** 外部最终分类模式下仅刷新事件关系，不覆盖已导入的分类与人工复核结果。 */
+    @Transactional
+    public void refreshEventAggregates() {
+        log.info("外部最终分类模式：刷新事件聚合，不重算帖子分类");
+        analysisService.aggregateEvents();
+    }
+
     /**
      * 清空所有数据（谨慎操作）
      */

@@ -25,7 +25,7 @@ class AssistantControllerTest {
         PostRepository posts = mock(PostRepository.class);
         EventRepository events = mock(EventRepository.class);
         AssistantLlmClient llm = new AssistantLlmClient(
-            RestClient.builder(), new ObjectMapper(), "", "", "", 30);
+            RestClient.builder(), new ObjectMapper(), "", "", "", 30, false, 600);
         when(posts.findAll()).thenReturn(List.of());
         when(events.findAll()).thenReturn(List.of());
         when(events.findAllByOrderByRiskScoreDescCreatedAtDesc()).thenReturn(List.of());

@@ -4,6 +4,7 @@ import com.nankai.yuqing.service.AnalysisService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,6 +17,9 @@ public class ScheduledTasks {
     private static final Logger log = LoggerFactory.getLogger(ScheduledTasks.class);
     private final AnalysisService analysisService;
 
+    @Value("${yuqing.classified-results.enabled:false}")
+    private boolean classifiedResultsEnabled;
+
     public ScheduledTasks(AnalysisService analysisService) {
         this.analysisService = analysisService;
     }
@@ -26,6 +30,10 @@ public class ScheduledTasks {
      */
     @Scheduled(cron = "0 0 * * * ?")
     public void scheduledAnalyzePosts() {
+        if (classifiedResultsEnabled) {
+            log.info("外部最终分类模式已启用，跳过定时重新分类");
+            return;
+        }
         log.info("========== 定时任务开始：分析所有帖子 ==========");
         try {
             analysisService.analyzeAllPosts();

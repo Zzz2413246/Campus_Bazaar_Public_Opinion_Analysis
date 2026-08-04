@@ -3,6 +3,8 @@ package com.nankai.yuqing.service;
 import com.nankai.yuqing.model.EventEntity;
 import com.nankai.yuqing.model.Post;
 import com.nankai.yuqing.model.PostComment;
+import com.nankai.yuqing.repository.EventRepository;
+import com.nankai.yuqing.repository.PostRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +13,10 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AnalysisServiceTest {
 
@@ -38,7 +44,7 @@ class AnalysisServiceTest {
 
         service.analyzePost(post);
 
-        assertEquals("诈骗与财产安全", post.getSafetyCategory());
+        assertEquals("网络与数据安全", post.getSafetyCategory());
         assertEquals("二手交易诈骗", post.getTopic());
         assertTrue(post.getClassificationConfidence() >= 70);
         assertTrue(post.getRiskScore() >= 40);
@@ -50,7 +56,7 @@ class AnalysisServiceTest {
 
         service.analyzePost(post);
 
-        assertEquals("宿舍设施问题", post.getSafetyCategory());
+        assertEquals("建筑与设施安全", post.getSafetyCategory());
         assertEquals("空调与热水", post.getTopic());
     }
 
@@ -60,7 +66,7 @@ class AnalysisServiceTest {
 
         service.analyzePost(post);
 
-        assertEquals("消防与用电安全", post.getSafetyCategory());
+        assertEquals("消防与电气安全", post.getSafetyCategory());
         assertEquals("电动车充电", post.getTopic());
         assertEquals("高", post.getRiskLevel());
     }
@@ -145,7 +151,7 @@ class AnalysisServiceTest {
         ));
 
         assertNull(post.getSafetyCategory());
-        assertEquals("诈骗与财产安全", post.getCommentSuggestedCategory());
+        assertEquals("网络与数据安全", post.getCommentSuggestedCategory());
         assertEquals(2, post.getCommentSuggestionCount());
         assertEquals("原帖文本", post.getAnalysisBasis());
         assertEquals(0, post.getCommentRiskAdjustment());
@@ -212,6 +218,26 @@ class AnalysisServiceTest {
         assertTrue(codes.contains("short_term_burst"));
         assertTrue(codes.contains("repeated_location"));
         assertTrue(codes.contains("urgent_keyword"));
+    }
+
+    @Test
+    void manuallyIrrelevantPostIsExcludedFromEventAggregation() {
+        PostRepository posts = mock(PostRepository.class);
+        EventRepository events = mock(EventRepository.class);
+        Post post = post("人工确认无关", "原始模型曾判断为安全内容", "校园集市");
+        post.setSafetyCategory("个人安全");
+        post.setRiskScore(90);
+        post.setRiskLevel("高");
+        post.setReviewStatus("无关内容");
+        post.setReviewedRiskLevel("低");
+        post.setReviewedAt(LocalDateTime.now());
+        when(posts.findAll()).thenReturn(List.of(post));
+        when(events.findAll()).thenReturn(List.of());
+
+        new AnalysisService(posts, events).aggregateEvents();
+
+        verify(events).saveAll(argThat(saved -> !saved.iterator().hasNext()));
+        assertNull(post.getEventId());
     }
 
     private Post post(String title, String content, String source) {

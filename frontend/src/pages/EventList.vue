@@ -6,6 +6,7 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import RefreshButton from '@/components/RefreshButton.vue'
+import { finalSafetyCategories } from '@/utils/safetyCategories'
 
 const router = useRouter()
 
@@ -18,10 +19,7 @@ const events = ref<any[]>([])
 const filterRisk = ref('')
 const filterCategory = ref('')
 const filterStatus = ref('')
-const categoryOptions = ref<string[]>([
-  '诈骗与财产安全', '治安与人身安全', '消防与用电安全', '校园交通安全',
-  '宿舍设施问题', '食堂与餐饮问题', '突发事件',
-])
+const categoryOptions = ref<string[]>(finalSafetyCategories())
 
 // 根据筛选条件过滤事件列表
 const filteredEvents = computed(() => {
@@ -94,7 +92,7 @@ async function loadCategories() {
     const res: any = await settingsApi.get()
     const d = unwrap(res) || {}
     if (Array.isArray(d.categories)) {
-      categoryOptions.value = d.categories.map(String).filter((name: string) => name !== '其他')
+      categoryOptions.value = d.categories.map(String)
     }
   } catch (err) {
     console.warn('分类设置加载失败，使用默认分类', err)

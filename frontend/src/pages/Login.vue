@@ -119,8 +119,8 @@ async function login() {
           <div class="test-account mt-6 px-4 py-3.5 flex items-center gap-3 bg-slate-50 border border-slate-200 text-sm text-slate-600">
             <span class="w-8 h-8 flex items-center justify-center bg-indigo-50 text-indigo-600 flex-shrink-0"><AppIcon name="user" :size="16" /></span>
             <div class="min-w-0">
-              <div class="text-xs text-slate-400 mb-0.5">演示账号</div>
-              <div><span class="font-medium text-slate-800">管理员</span><span class="mx-2 text-slate-300">/</span><span class="font-medium text-slate-800">123456</span></div>
+              <div class="text-xs text-slate-400 mb-0.5">管理员账号</div>
+              <div class="text-slate-700">密码由部署人员设置，请勿使用公开默认口令</div>
             </div>
           </div>
 

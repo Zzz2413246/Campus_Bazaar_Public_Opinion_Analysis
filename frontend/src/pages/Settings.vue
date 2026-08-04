@@ -103,10 +103,15 @@ async function saveSettings() {
     const d = unwrap(res) || res || {}
     if (Array.isArray(d.categories)) categories.value = d.categories.map(String)
     const jobStarted = Boolean(d.reanalysisJob)
+    const externalMode = d.reanalysisJob?.mode === 'EXTERNAL_CLASSIFIED'
     saveMsg.value = jobStarted
-      ? '设置已保存，后台重新分析已启动，可在数据管理中查看进度'
+      ? (externalMode
+          ? '设置已保存，后台仅刷新事件聚合，现有最终分类不会被覆盖'
+          : '设置已保存，后台重新分析已启动，可在数据管理中查看进度')
       : (d.message || '设置已保存')
-    toast.success(jobStarted ? '设置已保存，重新分析任务已启动' : '设置已保存')
+    toast.success(jobStarted
+      ? (externalMode ? '设置已保存，事件聚合刷新已启动' : '设置已保存，重新分析任务已启动')
+      : '设置已保存')
     setTimeout(() => { saveMsg.value = '' }, 3000)
   } catch (err) {
     console.warn('保存设置失败', err)
@@ -348,10 +353,10 @@ function isBuiltin(name: string) {
       <div v-if="saveConfirmOpen" class="fixed inset-0 z-[96] flex items-center justify-center p-5" @keydown.esc="saveConfirmOpen = false">
         <button class="absolute inset-0 bg-slate-950/40" aria-label="关闭保存确认" @click="saveConfirmOpen = false"></button>
         <section class="relative w-full max-w-lg bg-white shadow-2xl p-6" role="dialog" aria-modal="true" aria-labelledby="save-settings-title">
-          <h2 id="save-settings-title" class="text-lg font-semibold text-slate-900">保存并重新分析全部数据？</h2>
+          <h2 id="save-settings-title" class="text-lg font-semibold text-slate-900">保存设置并刷新数据状态？</h2>
           <p class="text-sm text-slate-600 mt-3 leading-6">
             本次保存包含 {{ categories.length }} 个启用分类和 {{ parseKeywords(urgentKeywordsText).length }} 个高危信号词。
-            后端会重新计算全部帖子、评论和事件。
+            外部最终分类模式下只刷新事件聚合，不覆盖现有分类；本地规则模式下会重新计算帖子、评论和事件。
           </p>
           <div class="flex justify-end gap-3 mt-6">
             <button class="btn btn-ghost" type="button" @click="saveConfirmOpen = false">取消</button>

@@ -34,6 +34,9 @@ public class CommentDataInitializer implements CommandLineRunner {
     @Value("${yuqing.comment-file:../comments.json}")
     private String commentFile;
 
+    @Value("${yuqing.classified-results.enabled:false}")
+    private boolean classifiedResultsEnabled;
+
     public CommentDataInitializer(CommentImportService commentImportService,
                                   DataImportService dataImportService,
                                   PostRepository postRepository,
@@ -46,6 +49,10 @@ public class CommentDataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        if (classifiedResultsEnabled) {
+            log.info("已启用外部最终分类数据，评论依据由分类结果同步，跳过旧评论文件");
+            return;
+        }
         boolean commentsChanged = false;
         try {
             File file = new File(commentFile);

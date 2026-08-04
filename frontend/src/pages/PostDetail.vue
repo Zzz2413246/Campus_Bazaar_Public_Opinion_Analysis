@@ -6,6 +6,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import { postApi, settingsApi } from '@/utils/api'
 import { toast } from '@/utils/toast'
+import { postCategoryOptions } from '@/utils/safetyCategories'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,10 +21,7 @@ const reviewRiskLevel = ref('低')
 const reviewEmotion = ref('中性')
 const reviewNote = ref('')
 const reviewSaving = ref(false)
-const categoryOptions = ref<string[]>([
-  '诈骗与财产安全', '治安与人身安全', '消防与用电安全', '校园交通安全',
-  '宿舍设施问题', '食堂与餐饮问题', '突发事件', '其他',
-])
+const categoryOptions = ref<string[]>(postCategoryOptions())
 
 const totalPages = computed(() => Math.max(1, Math.ceil(commentTotal.value / commentSize)))
 
@@ -42,7 +40,7 @@ async function loadDetail() {
     post.value = data
     comments.value = Array.isArray(data?.comments?.data) ? data.comments.data : []
     commentTotal.value = Number(data?.comments?.total ?? 0)
-    reviewCategory.value = data.reviewedCategory || data.safetyCategory || '其他'
+    reviewCategory.value = data.reviewedCategory || data.safetyCategory || '疑似主题无法确定'
     reviewRiskLevel.value = data.reviewedRiskLevel || data.riskLevel || '低'
     reviewEmotion.value = data.reviewedEmotion || data.emotion || '中性'
     reviewNote.value = data.reviewNote || ''
@@ -68,6 +66,26 @@ function reviewClass(status: string) {
   if (status === '已确认') return 'badge-success'
   if (status === '已修正') return 'badge-info'
   return 'badge-neutral'
+}
+
+const screeningLabelNames: Record<string, string> = {
+  SAFETY: '安全相关',
+  NON_SAFETY: '非安全内容',
+  UNCERTAIN: '待核实',
+}
+
+function formatScreeningLabel(value: unknown) {
+  const label = String(value || '').trim()
+  if (!label) return '未提供最终判定'
+  const translated = screeningLabelNames[label]
+  return translated ? `${label}（${translated}）` : label
+}
+
+function localizeScreeningLabels(value: unknown) {
+  return String(value || '').replace(
+    /\b(NON_SAFETY|UNCERTAIN|SAFETY)\b/g,
+    label => formatScreeningLabel(label),
+  )
 }
 
 async function submitReview(action: 'confirm' | 'correct' | 'irrelevant' | 'reset') {
@@ -113,7 +131,7 @@ async function loadCategories() {
   try {
     const data: any = await settingsApi.get()
     if (Array.isArray(data?.categories) && data.categories.length) {
-      categoryOptions.value = [...data.categories.map(String), '其他']
+      categoryOptions.value = [...data.categories.map(String), '非安全内容']
         .filter((item, index, list) => list.indexOf(item) === index)
     }
   } catch {
@@ -147,7 +165,7 @@ onMounted(() => {
             :class="post.riskLevel === '高' ? 'badge-high' : post.riskLevel === '中' ? 'badge-medium' : 'badge-low'">
             {{ post.riskLevel }}风险
           </span>
-          <span class="badge badge-info">{{ post.safetyCategory || '其他' }}</span>
+          <span class="badge badge-info">{{ post.safetyCategory || '疑似主题无法确定' }}</span>
           <span class="badge" :class="emotionClass(post.emotion)">{{ post.emotion || '中性' }}</span>
           <span :class="['badge', reviewClass(post.reviewStatus || '待复核')]">
             {{ post.reviewStatus || '待复核' }}
@@ -174,12 +192,42 @@ onMounted(() => {
         </div>
       </article>
 
+      <section v-if="post.analysisReason || post.discussionSummary || post.safetyClues" class="card card-pad">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 class="section-title">最终分类依据</h2>
+            <p class="section-sub mt-1">依据《分类.docx》最终标准及主帖、评论区综合分析结果</p>
+          </div>
+          <span :class="['badge', post.screeningLabel === 'UNCERTAIN' ? 'badge-warn' : post.screeningLabel === 'NON_SAFETY' ? 'badge-neutral' : 'badge-success']">
+            {{ formatScreeningLabel(post.screeningLabel) }}
+          </span>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
+          <div v-if="post.analysisReason" class="border border-slate-200 bg-slate-50/70 p-4">
+            <div class="text-sm font-semibold text-slate-800">分类理由</div>
+            <p class="text-sm leading-6 text-slate-700 whitespace-pre-wrap mt-2">{{ localizeScreeningLabels(post.analysisReason) }}</p>
+          </div>
+          <div v-if="post.discussionSummary" class="border border-brand-100 bg-brand-50/40 p-4">
+            <div class="text-sm font-semibold text-slate-800">讨论摘要</div>
+            <p class="text-sm leading-6 text-slate-700 whitespace-pre-wrap mt-2">{{ post.discussionSummary }}</p>
+          </div>
+          <div v-if="post.safetyClues" class="border border-amber-200 bg-amber-50 p-4">
+            <div class="text-sm font-semibold text-amber-900">安全线索</div>
+            <p class="text-sm leading-6 text-amber-900/80 whitespace-pre-wrap mt-2">{{ post.safetyClues }}</p>
+          </div>
+          <div v-if="post.controversies" class="border border-rose-100 bg-rose-50/60 p-4">
+            <div class="text-sm font-semibold text-rose-900">争议与待核实项</div>
+            <p class="text-sm leading-6 text-rose-900/80 whitespace-pre-wrap mt-2">{{ post.controversies }}</p>
+          </div>
+        </div>
+      </section>
+
       <section class="card card-pad relative overflow-hidden">
         <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-brand-600 to-accent-500"></div>
         <div class="flex items-start justify-between gap-4 mb-5 flex-wrap">
           <div>
             <h2 class="section-title">人工复核</h2>
-            <p class="section-sub mt-1">外部AI提供的低／中／高标签会原样保留，列表和报告优先使用人工复核后的最终结论。</p>
+            <p class="section-sub mt-1">外部最终分类作为初始结论，待核实记录仍可在这里完成人工确认或修正。</p>
           </div>
           <div v-if="post.reviewer" class="text-sm text-slate-500 text-right">
             <div>复核人：{{ post.reviewer }}</div>

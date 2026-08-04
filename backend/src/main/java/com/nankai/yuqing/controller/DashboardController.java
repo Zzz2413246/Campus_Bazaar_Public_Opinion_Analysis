@@ -31,7 +31,10 @@ public class DashboardController {
     }
 
     @GetMapping
-    public Map<String, Object> dashboard() {
+    public Map<String, Object> dashboard(
+            @RequestParam(defaultValue = "7") int days,
+            @RequestParam(required = false) LocalDate startDate,
+            @RequestParam(required = false) LocalDate endDate) {
         Map<String, Object> result = new LinkedHashMap<>();
         List<Post> allPosts = postRepository.findAll();
         List<EventEntity> allEvents = eventRepository.findAllByOrderByRiskScoreDescCreatedAtDesc();
@@ -43,7 +46,7 @@ public class DashboardController {
         result.put("recentEvents", buildRecentEvents(allEvents));
 
         // 趋势数据
-        result.put("trendData", buildTrendData(allPosts, allEvents));
+        result.put("trendData", buildTrendData(allPosts, allEvents, resolveTrendRange(days, startDate, endDate)));
 
         // 议题分布
         result.put("categoryDistribution", buildCategoryDistribution());
@@ -78,10 +81,8 @@ public class DashboardController {
 
         // 帖子数变化
         String postChange = calcChange(todayPosts, yesterdayPosts, true);
-        // 事件数变化（事件按创建日期）
-        long todayEvents = events.stream().filter(e -> e.getCreatedAt() != null && e.getCreatedAt().toLocalDate().equals(today)).count();
-        long yesterdayEvents = events.stream().filter(e -> e.getCreatedAt() != null && e.getCreatedAt().toLocalDate().equals(yesterday)).count();
-        String eventChange = calcChange(todayEvents, yesterdayEvents, false);
+        // 事件由全量帖子聚合生成，创建时间会随重新分析刷新，不能把本次聚合误报为“今日新增”。
+        String eventChange = "全量样本聚合结果";
 
         // sparkline 真实按天帖子数
         List<Integer> postSpark = dailyCount(allPosts, 7, true);
@@ -92,7 +93,7 @@ public class DashboardController {
 
         List<Map<String, Object>> stats = new ArrayList<>();
         stats.add(stat("总帖子数", totalPosts, postChange, todayPosts >= yesterdayPosts ? "up" : "good", "message-square", "brand", postSpark));
-        stats.add(stat("安全事件", eventCount, eventChange, todayEvents <= yesterdayEvents ? "good" : "up", "siren", "amber", eventSpark));
+        stats.add(stat("安全事件", eventCount, eventChange, "good", "siren", "amber", eventSpark));
         stats.add(stat("高风险事件", highRiskCount, highRiskCount > 0 ? "需关注" : "正常", highRiskCount > 0 ? "warn" : "good", "alert-triangle", "rose", highRiskSpark));
         stats.add(statText("整体情绪", emotionStatus, "负面占比" + (totalPosts > 0 ? negCount*100/totalPosts : 0) + "%", negCount > posCount ? "warn" : "up", "smile", "emerald", emotionSpark));
         return stats;
@@ -201,22 +202,60 @@ public class DashboardController {
         return result;
     }
 
-    private Map<String, Object> buildTrendData(List<Post> posts, List<EventEntity> events) {
-        List<String> days = analysisService.getLastNDays(7);
-        List<EventEntity> highRiskEvents = events.stream().filter(e -> "高".equals(e.getRisk())).toList();
-
-        // 真实按天统计
-        List<Integer> postSeries = dailyCount(posts, 7, true);
-        List<Integer> eventSeries = dailyEventCount(events, 7);
-        List<Integer> highRiskSeries = dailyEventCount(highRiskEvents, 7);
+    private Map<String, Object> buildTrendData(List<Post> posts, List<EventEntity> events, TrendRange range) {
+        Set<String> highRiskEventIds = events.stream()
+            .filter(event -> "高".equals(event.getRisk()))
+            .map(EventEntity::getId)
+            .filter(Objects::nonNull)
+            .collect(java.util.stream.Collectors.toSet());
+        List<String> labels = new ArrayList<>();
+        List<Integer> postSeries = new ArrayList<>();
+        List<Integer> eventSeries = new ArrayList<>();
+        List<Integer> highRiskSeries = new ArrayList<>();
+        for (LocalDate date = range.start(); !date.isAfter(range.end()); date = date.plusDays(1)) {
+            final LocalDate currentDate = date;
+            List<Post> dayPosts = posts.stream()
+                .filter(post -> post.getPublishTime() != null)
+                .filter(post -> currentDate.equals(post.getPublishTime().toLocalDate()))
+                .toList();
+            Set<String> dayEventIds = dayPosts.stream()
+                .map(Post::getEventId)
+                .filter(id -> id != null && !id.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+            labels.add(date.format(DateTimeFormatter.ofPattern("M/d")));
+            postSeries.add(dayPosts.size());
+            // 事件在页面展示为其首次出现的帖子日期，避免重新聚合日期掩盖原始舆情发生时间。
+            eventSeries.add(dayEventIds.size());
+            highRiskSeries.add((int) dayEventIds.stream().filter(highRiskEventIds::contains).count());
+        }
 
         Map<String, Object> trend = new LinkedHashMap<>();
-        trend.put("days", days);
+        trend.put("labels", labels);
+        trend.put("startDate", range.start());
+        trend.put("endDate", range.end());
+        trend.put("days", labels.size());
+        trend.put("timedPosts", posts.stream().filter(post -> post.getPublishTime() != null).count());
+        trend.put("totalPosts", posts.size());
         trend.put("posts", postSeries);
         trend.put("events", eventSeries);
         trend.put("highRisk", highRiskSeries);
         return trend;
     }
+
+    /** 限定最长一年；不带参数时保持原有近 7 天行为。 */
+    private TrendRange resolveTrendRange(int days, LocalDate startDate, LocalDate endDate) {
+        LocalDate end = endDate == null ? LocalDate.now() : endDate;
+        LocalDate start = startDate == null ? end.minusDays(Math.max(1, Math.min(days, 366)) - 1L) : startDate;
+        if (start.isAfter(end)) {
+            LocalDate swap = start;
+            start = end;
+            end = swap;
+        }
+        if (java.time.temporal.ChronoUnit.DAYS.between(start, end) > 365) start = end.minusDays(365);
+        return new TrendRange(start, end);
+    }
+
+    private record TrendRange(LocalDate start, LocalDate end) {}
 
     private List<Map<String, Object>> buildCategoryDistribution() {
         List<Object[]> raw = postRepository.countByCategory();
@@ -349,7 +388,7 @@ public class DashboardController {
         item.put("id", post.getId());
         item.put("title", firstNonBlank(post.getTitle(), post.getContent(), "无标题帖子"));
         item.put("risk", effectiveRisk(post));
-        item.put("category", firstNonBlank(post.getReviewedCategory(), post.getSafetyCategory(), "其他"));
+            item.put("category", firstNonBlank(post.getReviewedCategory(), post.getSafetyCategory(), "疑似主题无法确定"));
         item.put("time", post.getPublishTime());
         item.put("heat", postHeat(post));
         return item;

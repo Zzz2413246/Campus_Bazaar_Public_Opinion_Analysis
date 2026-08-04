@@ -15,14 +15,11 @@ import java.util.*;
 public class AnalysisSettingsService {
 
     private static final String SETTINGS_KEY = "analysis.settings";
-    public static final List<String> BUILTIN_CATEGORIES = List.of(
+    public static final List<String> BUILTIN_CATEGORIES = SafetyCategoryStandard.CATEGORIES;
+    private static final List<String> DEFAULT_CATEGORIES = SafetyCategoryStandard.CATEGORIES;
+    private static final Set<String> LEGACY_CATEGORIES = Set.of(
         "诈骗与财产安全", "治安与人身安全", "消防与用电安全", "校园交通安全",
-        "宿舍设施问题", "食堂与餐饮问题", "突发事件"
-    );
-    private static final List<String> DEFAULT_CATEGORIES = List.of(
-        "诈骗与财产安全", "治安与人身安全", "消防与用电安全", "校园交通安全",
-        "宿舍设施问题", "食堂与餐饮问题", "突发事件", "其他"
-    );
+        "宿舍设施问题", "食堂与餐饮问题", "突发事件", "其他");
 
     public record AlertRules(
         int minPostCount,
@@ -117,6 +114,9 @@ public class AnalysisSettingsService {
         try {
             Map<String, Object> value = objectMapper.readValue(stored.get().getValue(), new TypeReference<>() {});
             List<String> categories = normalizeCategories(value.get("categories"), DEFAULT_CATEGORIES);
+            if (categories.stream().anyMatch(LEGACY_CATEGORIES::contains)) {
+                categories = List.copyOf(DEFAULT_CATEGORIES);
+            }
             Map<String, List<String>> rules = normalizeRules(value.get("categoryRules"), categories, Map.of());
             AlertRules alertRules = normalizeAlertRules(
                 value.get("alertRules"), AlertRules.defaults());

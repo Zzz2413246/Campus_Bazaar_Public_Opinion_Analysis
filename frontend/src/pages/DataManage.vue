@@ -101,11 +101,15 @@ function permissionName(value: string) {
 }
 
 async function handleReanalyze() {
-  if (!confirm('确定要重新分析所有数据吗？这可能需要几分钟时间。')) return
+  const externalMode = reanalysisJob.value.mode === 'EXTERNAL_CLASSIFIED'
+  const prompt = externalMode
+    ? '确定刷新事件聚合吗？已导入的最终分类和人工复核结果不会被修改。'
+    : '确定要重新分析所有数据吗？这可能需要几分钟时间。'
+  if (!confirm(prompt)) return
   try {
     const res: any = await dataApi.reanalyze()
     reanalysisJob.value = unwrap(res) || res
-    toast.success('重新分析任务已启动')
+    toast.success(externalMode ? '事件聚合刷新任务已启动' : '重新分析任务已启动')
     pollReanalysis()
   } catch (err) {
     toast.error('重新分析失败，请稍后重试')
@@ -121,7 +125,7 @@ async function pollReanalysis() {
       reanalysisTimer = setTimeout(pollReanalysis, 1000)
     } else if (reanalysisJob.value.status === 'COMPLETED') {
       if (reanalysisJob.value.result) stats.value = reanalysisJob.value.result
-      toast.success('重新分析完成')
+      toast.success(reanalysisJob.value.message || '处理完成')
       await loadStats()
     } else if (reanalysisJob.value.status === 'FAILED') {
       toast.error(reanalysisJob.value.message || '重新分析失败')
@@ -233,12 +237,12 @@ onUnmounted(() => {
 
     <!-- 数据质量总览 -->
     <section class="card card-pad border-t-4 border-t-brand-500">
-      <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
+      <div class="quality-header">
         <div>
           <h3 class="section-title">数据质量监控</h3>
           <p class="text-sm text-slate-500 mt-1">从完整性、分析覆盖、评论关联和数据时效四个维度自动检查</p>
         </div>
-        <div :class="['border px-4 py-2.5 text-right', qualityTone(Number(quality.score || 0))]">
+        <div :class="['quality-score', qualityTone(Number(quality.score || 0))]">
           <div class="text-2xl font-bold">{{ quality.score || 0 }}<span class="text-sm font-normal"> / 100</span></div>
           <div class="text-xs mt-0.5">{{ quality.status }} · {{ quality.issueCount || 0 }} 项异常</div>
         </div>
@@ -249,8 +253,14 @@ onUnmounted(() => {
         <div class="quality-dimension"><span>评论关联率</span><strong>{{ quality.dimensions?.commentLinkage || 0 }}%</strong></div>
         <div class="quality-dimension"><span>数据时效性</span><strong>{{ quality.dimensions?.timeliness || 0 }}%</strong></div>
       </div>
-      <div class="mt-4 border border-slate-200 overflow-x-auto">
-        <table class="table w-full">
+      <div class="quality-issues">
+        <table class="quality-issues-table">
+          <colgroup>
+            <col class="quality-col-name" />
+            <col class="quality-col-level" />
+            <col class="quality-col-description" />
+            <col />
+          </colgroup>
           <thead><tr><th>异常项目</th><th>级别</th><th>数量/情况</th><th>处理建议</th></tr></thead>
           <tbody>
             <tr v-for="issue in quality.issues || []" :key="issue.code">
@@ -263,7 +273,7 @@ onUnmounted(() => {
           </tbody>
         </table>
       </div>
-      <p class="text-xs text-slate-400 mt-3">
+      <p class="quality-check-time text-xs text-slate-400">
         最近数据：{{ formatTime(quality.latestDataAt) }} · 本次检查：{{ formatTime(quality.generatedAt) }}
       </p>
     </section>
@@ -605,7 +615,8 @@ onUnmounted(() => {
           :disabled="reanalysisJob.status === 'RUNNING'"
           class="btn btn-primary inline-flex items-center gap-2"
         >
-          <AppIcon name="refresh-cw" :size="16" /> 重新分析所有数据
+          <AppIcon name="refresh-cw" :size="16" />
+          {{ reanalysisJob.mode === 'EXTERNAL_CLASSIFIED' ? '刷新事件聚合' : '重新分析所有数据' }}
         </button>
         <button @click="handleClear" class="btn inline-flex items-center gap-2 text-rose-600 border-rose-200 hover:bg-rose-50">
           <AppIcon name="trash-2" :size="16" /> 清空所有数据
@@ -623,7 +634,8 @@ onUnmounted(() => {
       <div class="mt-4 text-xs text-slate-400 bg-slate-50/70 p-3 border border-slate-100">
         <strong>提示：</strong>
         <ul class="list-disc list-inside mt-1 space-y-1">
-          <li>重新分析会对所有帖子重新进行分类、情绪识别和风险评分，适用于更新关键词规则后</li>
+          <li v-if="reanalysisJob.mode === 'EXTERNAL_CLASSIFIED'">当前采用外部最终分类；刷新操作只更新事件聚合，不会覆盖现有分类和人工复核结果</li>
+          <li v-else>重新分析会对所有帖子重新进行分类、情绪识别和风险评分，适用于更新关键词规则后</li>
           <li>评论通过 thread_id 与帖子 id 自动关联，只在形成同类风险佐证时参与加权</li>
           <li>清空数据后需重新导入，谨慎操作</li>
           <li>增量导入可通过 API POST /api/data/import 进行</li>
@@ -653,10 +665,86 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  min-height: 62px;
+  gap: 16px;
+  padding: 16px 18px;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
 }
-.quality-dimension span { color: #64748b; font-size: 13px; }
-.quality-dimension strong { color: #1e3a8a; font-size: 18px; }
+.quality-dimension span { color: #64748b; font-size: 14px; line-height: 20px; }
+.quality-dimension strong { flex: 0 0 auto; color: #1e3a8a; font-size: 18px; line-height: 24px; }
+
+.quality-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.quality-score {
+  flex: 0 0 auto;
+  min-width: 132px;
+  padding: 12px 16px;
+  border-width: 1px;
+  text-align: right;
+}
+
+.quality-issues {
+  margin-top: 16px;
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+}
+
+.quality-issues-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.quality-issues-table th,
+.quality-issues-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.55;
+}
+
+.quality-issues-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.quality-issues-table td {
+  font-size: 14px;
+}
+
+.quality-issues-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.quality-col-name { width: 15%; }
+.quality-col-level { width: 9%; }
+.quality-col-description { width: 24%; }
+
+.quality-check-time {
+  margin-top: 12px;
+  line-height: 20px;
+}
+
+@media (max-width: 640px) {
+  .quality-header {
+    flex-direction: column;
+  }
+
+  .quality-score {
+    width: 100%;
+    text-align: left;
+  }
+}
 </style>

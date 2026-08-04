@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 @Service
 public class AnalysisService {
 
-    public static final String ANALYSIS_VERSION = "2.1.3";
+    public static final String ANALYSIS_VERSION = "3.0.0-final-standard";
     private static final int CATEGORY_THRESHOLD = 5;
     private static final int FIXED_HIGH_RISK_THRESHOLD = 70;
     private static final int FIXED_MEDIUM_RISK_THRESHOLD = 40;
@@ -107,47 +107,67 @@ public class AnalysisService {
     }
 
     private static final List<CategoryRule> CATEGORY_RULES = List.of(
-        rule("突发事件", 35,
-            "救命", 3, "跳楼", 8, "坠楼", 8, "自杀", 8, "轻生", 8, "爆炸", 8,
-            "紧急求助", 7, "昏迷", 7, "晕倒", 6, "流血", 6, "救护车", 6,
-            "失联", 6, "走失", 6, "需要急救", 6, "急救人员", 6, "突发事件", 6, "报警", 3,
-            "受伤", 3, "医院", 2, "急诊", 3),
-        rule("消防与用电安全", 28,
+        rule("个人安全", 30,
+            "持刀", 8, "袭击", 8, "猥亵", 8, "性侵", 8, "性骚扰", 8,
+            "尾随", 7, "跟踪", 7, "偷拍", 7, "霸凌", 7, "威胁", 6,
+            "恐吓", 6, "人身安全", 6, "持续骚扰", 6, "网络骚扰", 6),
+        rule("意外伤害", 28,
+            "踩踏", 8, "溺水", 8, "坠落", 8, "跌倒", 6, "摔伤", 6,
+            "运动伤害", 6, "物体打击", 7, "挤压受伤", 7, "意外受伤", 6),
+        rule("消防与电气安全", 30,
             "火灾", 8, "起火", 8, "着火", 8, "电池爆炸", 8, "燃气泄漏", 8,
             "漏电", 7, "触电", 7, "短路", 6, "冒烟", 6, "飞线充电", 6,
             "违规充电", 6, "消防通道堵塞", 6, "电线裸露", 6, "烧焦", 5,
             "消防隐患", 6, "灭火器", 4, "消防", 3, "电线", 2, "插座", 2,
             "充电", 2, "电池", 2, "电瓶车", 2, "电动车", 1, "明火", 4),
-        rule("治安与人身安全", 28,
-            "持刀", 8, "抢劫", 8, "猥亵", 8, "性骚扰", 8, "打架", 7,
-            "斗殴", 7, "尾随", 7, "跟踪", 7, "偷拍", 7, "盗窃", 7,
-            "被偷", 6, "偷窃", 6, "威胁", 6, "恐吓", 6, "人身安全", 6,
-            "寻衅滋事", 7, "骚扰", 5, "冲突", 3, "争执", 2, "失窃", 5,
-            "危险", 3, "报警", 3, "警察", 2, "受伤", 3),
-        rule("诈骗与财产安全", 27,
+        rule("建筑与设施安全", 22,
+            "墙体开裂", 8, "围墙倒塌", 8, "楼梯损坏", 7, "门窗脱落", 7,
+            "电梯故障", 7, "体育器械损坏", 7, "设施老化", 6, "施工隐患", 6,
+            "漏水", 5, "漏雨", 5, "门锁坏", 5, "空调坏", 5, "热水故障", 5),
+        rule("食品与公共卫生", 24,
+            "食物中毒", 8, "食品安全", 7, "吃出异物", 7, "吃出虫", 7,
+            "吃坏肚子", 7, "腹泻", 6, "变质", 6, "发霉", 6, "过期食品", 7,
+            "饮用水污染", 8, "聚集性感染", 8, "传染病", 7, "疫情", 5,
+            "后厨卫生", 6, "食堂", 3, "卫生", 3, "异物", 4),
+        rule("交通安全", 24,
+            "车祸", 8, "交通事故", 8, "撞人", 8, "被撞", 7, "逆行", 6,
+            "闯红灯", 6, "超速", 6, "危险驾驶", 7, "违停", 5, "道路隐患", 6,
+            "校车", 3, "交通安全", 6, "电动车", 2, "骑行", 2),
+        rule("网络与数据安全", 27,
             "诈骗", 8, "电诈", 8, "被骗", 8, "骗子", 4, "骗钱", 8, "骗取", 7,
             "刷单", 8, "杀猪盘", 8, "钓鱼链接", 8, "冒充客服", 8, "盗号", 7,
-            "卷款", 7, "跑路", 2, "收钱不发货", 8, "转账后失联", 8,
-            "押金不退", 7, "虚假兼职", 7, "黑中介", 7, "校园贷", 8,
-            "高利贷", 8, "套现", 6, "防诈骗", 6, "反诈", 6, "转账", 2,
-            "退款", 2, "定金", 2, "押金", 2, "中介", 2, "银行卡", 2,
-            "支付宝", 2, "微信收款", 2, "交易风险", 4),
-        rule("食堂与餐饮问题", 18,
-            "食物中毒", 8, "食品安全", 7, "吃出异物", 7, "吃出虫", 7,
-            "吃坏肚子", 7, "拉肚子", 6, "腹泻", 6, "变质", 6, "发霉", 6,
-            "过期食品", 7, "不卫生", 5, "后厨卫生", 6, "食堂", 3,
-            "餐厅", 2, "饭菜", 2, "外卖", 1, "卫生", 3, "异物", 4, "虫子", 4),
-        rule("宿舍设施问题", 16,
-            "停水", 7, "停电", 7, "漏水", 6, "漏雨", 6, "断网", 5,
-            "电梯故障", 7, "门锁坏", 6, "空调坏", 6, "热水故障", 6,
-            "墙体开裂", 7, "宿舍维修", 6, "蟑螂", 5, "老鼠", 5,
-            "宿舍", 3, "公寓", 2, "空调", 2, "热水", 2, "网络", 1,
-            "wifi", 1, "门锁", 2, "宿管", 2, "维修", 2, "故障", 3, "坏了", 3),
-        rule("校园交通安全", 20,
-            "车祸", 8, "交通事故", 8, "撞人", 8, "被撞", 7, "逆行", 6,
-            "闯红灯", 6, "超速", 6, "违停", 5, "乱停", 5, "交通拥堵", 5,
-            "占用消防通道", 7, "交通安全", 6, "堵车", 4, "拥堵", 3,
-            "电动车", 2, "自行车", 1, "校车", 2, "停车", 2, "骑车", 1)
+            "账号盗用", 8, "身份冒用", 7, "隐私泄露", 8, "数据泄露", 8,
+            "恶意软件", 7, "网络攻击", 8, "系统攻击", 8, "反诈", 6),
+        rule("财产安全", 24,
+            "盗窃", 8, "偷窃", 8, "被偷", 7, "失窃", 7, "抢夺", 8,
+            "抢劫", 8, "入室盗窃", 8, "故意损坏", 7, "砸坏", 6),
+        rule("心理危机", 35,
+            "跳楼", 8, "坠楼", 8, "自杀", 8, "轻生", 8, "自伤", 8,
+            "结束生命", 8, "不想活", 7, "心理失控", 7, "紧急心理求助", 8),
+        rule("实验室安全", 32,
+            "实验室爆炸", 8, "化学品泄漏", 8, "生物材料泄漏", 8, "辐射源", 8,
+            "气瓶爆炸", 8, "压力容器", 7, "实验室中毒", 8, "实验灼伤", 7,
+            "实验废液", 6, "违规实验", 6),
+        rule("公共秩序与活动安全", 25,
+            "打架", 8, "斗殴", 8, "互殴", 8, "多人冲突", 7, "聚集滋事", 8,
+            "起哄冲撞", 7, "扰乱秩序", 7, "活动超员", 7, "人员过密", 6,
+            "推挤", 6, "疏散混乱", 7),
+        rule("环境安全", 22,
+            "空气污染", 7, "水体污染", 7, "土壤污染", 7, "污染排放", 7,
+            "危险污染物", 8, "环境异味", 6, "废弃物污染", 7, "环境质量异常", 6),
+        rule("自然灾害", 30,
+            "暴雨", 6, "洪涝", 8, "台风", 7, "地震", 8, "雷击", 7,
+            "滑坡", 8, "泥石流", 8, "极端高温", 6, "极端低温", 6),
+        rule("政治与国家安全", 35,
+            "恐怖主义", 8, "极端主义", 8, "分裂活动", 8, "校园渗透", 8,
+            "间谍", 8, "窃密", 8, "非法情报", 8, "暴力极端", 8),
+        rule("仇恨与身份歧视", 26,
+            "仇恨言论", 8, "民族歧视", 8, "种族歧视", 8, "宗教歧视", 8,
+            "性别歧视", 7, "地域歧视", 7, "残障歧视", 8, "疾病歧视", 7,
+            "性取向歧视", 8, "身份歧视", 8),
+        rule("校园谣言与声誉风险", 24,
+            "校园谣言", 8, "学校谣言", 8, "恶意造谣", 8, "虚假招生", 7,
+            "办学资格造假", 8, "恶意传播虚假信息", 8, "引发恐慌", 6)
     );
 
     private static final Map<String, List<String>> TOPIC_PHRASES = new LinkedHashMap<>();
@@ -399,24 +419,25 @@ public class AnalysisService {
 
             // 普通二手商品描述里大量出现“转账、充电、电动车、自行车”，没有强证据时不判为安全事件。
             if (ordinarySale && !strongEvidence
-                && ("诈骗与财产安全".equals(rule.category())
-                    || "消防与用电安全".equals(rule.category())
-                    || "校园交通安全".equals(rule.category()))) {
+                && ("网络与数据安全".equals(rule.category())
+                    || "消防与电气安全".equals(rule.category())
+                    || "交通安全".equals(rule.category()))) {
                 score = 0;
             }
-            if (ordinarySale && "诈骗与财产安全".equals(rule.category())
+            if (ordinarySale && "网络与数据安全".equals(rule.category())
                 && !containsAny(scoringText, ACTUAL_FRAUD_PHRASES)) {
                 score = 0;
             }
-            if (!strongEvidence && ("消防与用电安全".equals(rule.category())
-                || "宿舍设施问题".equals(rule.category()))) {
+            if (!strongEvidence && ("消防与电气安全".equals(rule.category())
+                || "建筑与设施安全".equals(rule.category()))) {
                 score = 0;
             }
-            if (!strongEvidence && "食堂与餐饮问题".equals(rule.category())
+            if (!strongEvidence && "食品与公共卫生".equals(rule.category())
                 && !containsAny(scoringText, "食堂", "餐厅", "饭菜", "外卖", "食品", "吃", "餐饮", "后厨")) {
                 score = 0;
             }
-            if ("突发事件".equals(rule.category()) && !hasActualEmergencyEvidence(scoringText)) {
+            if (("心理危机".equals(rule.category()) || "意外伤害".equals(rule.category()))
+                && !hasActualEmergencyEvidence(scoringText)) {
                 score = 0;
             }
 
@@ -483,14 +504,14 @@ public class AnalysisService {
 
     private String extractProblem(String category) {
         if (category == null) return "一般讨论";
-        if (category.contains("诈骗")) return "诈骗风险";
+        if (category.contains("网络")) return "网络与数据风险";
         if (category.contains("消防")) return "消防隐患";
-        if (category.contains("治安")) return "治安问题";
+        if (category.contains("个人")) return "人身安全问题";
+        if (category.contains("财产")) return "财产侵害";
         if (category.contains("交通")) return "交通问题";
-        if (category.contains("宿舍")) return "设施维修";
-        if (category.contains("食堂")) return "餐饮问题";
-        if (category.contains("突发")) return "突发事件";
-        return "其他";
+        if (category.contains("设施")) return "设施安全隐患";
+        if (category.contains("卫生")) return "公共卫生风险";
+        return category;
     }
 
     private String extractDemand(String text) {
@@ -509,26 +530,19 @@ public class AnalysisService {
                 return entry.getKey();
             }
         }
-        return switch (category) {
-            case "诈骗与财产安全" -> "其他诈骗风险";
-            case "消防与用电安全" -> "其他消防隐患";
-            case "治安与人身安全" -> "其他治安问题";
-            case "校园交通安全" -> "其他交通问题";
-            case "宿舍设施问题" -> "其他宿舍设施";
-            case "食堂与餐饮问题" -> "其他餐饮问题";
-            case "突发事件" -> "其他突发事件";
-            default -> category + "相关讨论";
-        };
+        return category + "相关讨论";
     }
 
     private boolean topicBelongsToCategory(String topic, String category) {
-        if (topic.contains("诈骗") || topic.contains("支付") || topic.contains("中介")) return category.contains("诈骗");
+        if (topic.contains("诈骗") || topic.contains("支付") || topic.contains("中介")) return category.contains("网络");
         if (topic.contains("充电") || topic.contains("电气") || topic.contains("火情") || topic.contains("消防")) return category.contains("消防");
-        if (topic.contains("骚扰") || topic.contains("盗窃") || topic.contains("冲突")) return category.contains("治安");
+        if (topic.contains("骚扰")) return category.contains("个人");
+        if (topic.contains("盗窃")) return category.contains("财产");
+        if (topic.contains("冲突")) return category.contains("秩序");
         if (topic.contains("交通") || topic.contains("车辆")) return category.contains("交通");
-        if (topic.contains("供水") || topic.contains("空调") || topic.contains("网络") || topic.contains("宿舍")) return category.contains("宿舍");
-        if (topic.contains("食品")) return category.contains("食堂");
-        return (topic.contains("突发") || topic.contains("失联") || topic.contains("心理")) && category.contains("突发");
+        if (topic.contains("供水") || topic.contains("空调") || topic.contains("网络") || topic.contains("宿舍")) return category.contains("设施");
+        if (topic.contains("食品")) return category.contains("卫生");
+        return topic.contains("心理") && category.contains("心理");
     }
 
     private int calculateRiskScore(Post post, String text, Classification classification) {
@@ -584,8 +598,7 @@ public class AnalysisService {
         eventRepository.deleteAll();
 
         Map<String, List<Post>> grouped = allPosts.stream()
-            .filter(p -> p.getSafetyCategory() != null
-                || isAlertRisk(sourceRiskLevel(p)))
+            .filter(this::isEventEligible)
             .collect(Collectors.groupingBy(this::eventGroupKey, LinkedHashMap::new, Collectors.toList()));
 
         List<EventEntity> events = new ArrayList<>();
@@ -609,7 +622,7 @@ public class AnalysisService {
             EventEntity event = new EventEntity();
             event.setId(id);
             event.setTitle(generateEventTitle(top, posts));
-            event.setCategory(Objects.toString(top.getSafetyCategory(), "其他风险"));
+            event.setCategory(Objects.toString(effectiveEventCategory(top), "其他风险"));
             event.setRiskScore(eventScore);
             String eventRiskLevel = aggregateRiskLevel(posts, eventScore);
             event.setRisk(eventRiskLevel);
@@ -650,9 +663,22 @@ public class AnalysisService {
         LocalDate date = post.getPublishTime() == null ? LocalDate.now() : post.getPublishTime().toLocalDate();
         int weekYear = date.get(IsoFields.WEEK_BASED_YEAR);
         int week = date.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
-        return Objects.toString(post.getSafetyCategory(), "其他风险")
+        return Objects.toString(effectiveEventCategory(post), "其他风险")
             + "|" + Objects.toString(post.getTopic(), "综合")
             + "|" + weekYear + "-W" + String.format("%02d", week);
+    }
+
+    private boolean isEventEligible(Post post) {
+        if ("无关内容".equals(post.getReviewStatus())) return false;
+        return effectiveEventCategory(post) != null || isAlertRisk(sourceRiskLevel(post));
+    }
+
+    private String effectiveEventCategory(Post post) {
+        if (post.getReviewedAt() != null) {
+            return post.getReviewedCategory() == null || post.getReviewedCategory().isBlank()
+                ? null : post.getReviewedCategory();
+        }
+        return post.getSafetyCategory();
     }
 
     private String stableEventId(String key) {
@@ -696,7 +722,7 @@ public class AnalysisService {
         if (title.isBlank()) {
             title = Objects.toString(
                 top.getTopic(),
-                Objects.toString(top.getSafetyCategory(), "风险标签")) + "相关讨论";
+                Objects.toString(effectiveEventCategory(top), "风险标签")) + "相关讨论";
         }
         if (title.length() > 28) title = title.substring(0, 28) + "...";
         return title;

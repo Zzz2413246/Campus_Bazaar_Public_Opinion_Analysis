@@ -10,6 +10,7 @@ import com.nankai.yuqing.service.AnalysisService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.time.format.DateTimeFormatter;
 import java.time.LocalDateTime;
@@ -169,7 +170,18 @@ public class EventController {
      * 更新事件状态
      */
     @PutMapping("/{id}/status")
-    public Map<String, Object> updateStatus(@PathVariable String id, @RequestBody Map<String, String> body) {
+    public Map<String, Object> updateStatus(@PathVariable String id,
+                                            @RequestBody Map<String, String> body,
+                                            HttpServletRequest request) {
+        return updateStatusInternal(id, body, authenticatedOperator(request));
+    }
+
+    /** 兼容控制器单元测试；实际 HTTP 请求始终使用拦截器写入的登录用户。 */
+    Map<String, Object> updateStatus(String id, Map<String, String> body) {
+        return updateStatusInternal(id, body, "管理员");
+    }
+
+    private Map<String, Object> updateStatusInternal(String id, Map<String, String> body, String operator) {
         EventEntity event = eventRepository.findById(id).orElse(null);
         if (event == null) {
             return Map.of("error", "事件不存在");
@@ -179,7 +191,6 @@ public class EventController {
         String assignee = body.get("assignee");
         String dueAt = body.get("dueAt");
         String remark = body.get("remark");
-        String operator = body.getOrDefault("operator", "管理员");
         String expectedUpdatedAt = body.get("expectedUpdatedAt");
 
         if (expectedUpdatedAt != null && !expectedUpdatedAt.isBlank() && event.getUpdatedAt() != null) {
@@ -198,7 +209,16 @@ public class EventController {
 
         Set<String> allowedStatuses = Set.of("待核实", "处理中", "持续观察", "已解决", "误报");
         if (status != null && !allowedStatuses.contains(status)) {
-            return Map.of("error", "无效的处置状态");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "无效的处置状态");
+        }
+        if (risk != null && !Set.of("高", "中", "低").contains(risk)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "无效的风险等级");
+        }
+        if (assignee != null && assignee.trim().length() > 100) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "负责人名称不能超过 100 个字符");
+        }
+        if (remark != null && remark.trim().length() > 2000) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "处置说明不能超过 2000 个字符");
         }
         if (status != null) event.setStatus(status);
         if (risk != null) {
@@ -206,7 +226,11 @@ public class EventController {
         }
         if (assignee != null) event.setAssignee(assignee.trim());
         if (dueAt != null) {
-            event.setDueAt(dueAt.isBlank() ? null : LocalDateTime.parse(dueAt));
+            try {
+                event.setDueAt(dueAt.isBlank() ? null : LocalDateTime.parse(dueAt));
+            } catch (java.time.format.DateTimeParseException exception) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "处理时限格式无效", exception);
+            }
         }
         if (remark != null && !remark.isBlank()) event.setResolution(remark.trim());
         event.setUpdatedAt(LocalDateTime.now());
@@ -231,6 +255,12 @@ public class EventController {
         eventActionRepository.save(action);
 
         return Map.of("success", true, "updatedAt", event.getUpdatedAt());
+    }
+
+    private String authenticatedOperator(HttpServletRequest request) {
+        Object value = request.getAttribute("auditOperator");
+        String operator = Objects.toString(value, "管理员").trim();
+        return operator.isEmpty() ? "管理员" : operator.substring(0, Math.min(operator.length(), 100));
     }
 
     private boolean isOverdue(EventEntity event) {

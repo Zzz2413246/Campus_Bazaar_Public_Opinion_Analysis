@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -39,12 +41,14 @@ public class AuthService {
     private static final int MAX_LOGIN_ATTEMPTS = 5;
     private static final Duration LOCK_DURATION = Duration.ofMinutes(15);
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final int PBKDF2_ITERATIONS = 210_000;
+    private static final int PBKDF2_KEY_BITS = 256;
     private record LoginAttempt(int count, Instant lockedUntil) {}
 
     @Autowired
     public AuthService(
             @Value("${yuqing.auth.nickname:管理员}") String configuredNickname,
-            @Value("${yuqing.auth.password:123456}") String configuredPassword,
+            @Value("${yuqing.auth.password:}") String configuredPassword,
             @Value("${yuqing.auth.session-hours:24}") long sessionHours,
             SystemSettingRepository settingRepository) {
         this.configuredNickname = configuredNickname;
@@ -95,8 +99,11 @@ public class AuthService {
         if (settingRepository == null) return false;
         byte[] salt = new byte[16];
         RANDOM.nextBytes(salt);
-        String encodedSalt = java.util.HexFormat.of().formatHex(salt);
-        settingRepository.save(new SystemSetting("auth.password.hash", encodedSalt + ":" + hash(encodedSalt + newPassword)));
+        String encodedSalt = java.util.Base64.getEncoder().encodeToString(salt);
+        String encodedHash = java.util.Base64.getEncoder().encodeToString(
+            pbkdf2(newPassword, salt, PBKDF2_ITERATIONS));
+        settingRepository.save(new SystemSetting("auth.password.hash",
+            "pbkdf2$" + PBKDF2_ITERATIONS + "$" + encodedSalt + "$" + encodedHash));
         sessions.entrySet().removeIf(entry -> !entry.getKey().equals(token));
         return true;
     }
@@ -177,14 +184,46 @@ public class AuthService {
     }
 
     private boolean passwordMatches(String password) {
+        if (password == null) return false;
         if (settingRepository != null) {
             String stored = settingRepository.findById("auth.password.hash").map(SystemSetting::getValue).orElse("");
+            if (stored.startsWith("pbkdf2$")) return matchesPbkdf2(password, stored);
+            // 兼容早期版本的 salt:sha256 存量密码；下次修改密码后自动使用 PBKDF2。
             String[] parts = stored.split(":", 2);
             if (parts.length == 2) return MessageDigest.isEqual(
                 parts[1].getBytes(StandardCharsets.UTF_8),
                 hash(parts[0] + password).getBytes(StandardCharsets.UTF_8));
         }
-        return configuredPassword.equals(password);
+        return configuredPassword != null && !configuredPassword.isBlank()
+            && MessageDigest.isEqual(
+                configuredPassword.getBytes(StandardCharsets.UTF_8),
+                password.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private boolean matchesPbkdf2(String password, String stored) {
+        try {
+            String[] parts = stored.split("\\$", 4);
+            if (parts.length != 4) return false;
+            int iterations = Integer.parseInt(parts[1]);
+            if (iterations < 100_000 || iterations > 1_000_000) return false;
+            byte[] salt = java.util.Base64.getDecoder().decode(parts[2]);
+            byte[] expected = java.util.Base64.getDecoder().decode(parts[3]);
+            return MessageDigest.isEqual(expected, pbkdf2(password, salt, iterations));
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    private byte[] pbkdf2(String password, byte[] salt, int iterations) {
+        PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), salt, iterations, PBKDF2_KEY_BITS);
+        try {
+            return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec).getEncoded();
+        } catch (Exception exception) {
+            throw new IllegalStateException("无法计算密码摘要", exception);
+        } finally {
+            spec.clearPassword();
+        }
     }
 
     private void recordLoginFailure(String nickname) {

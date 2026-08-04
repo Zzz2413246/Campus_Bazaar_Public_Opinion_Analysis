@@ -1,6 +1,7 @@
 package com.nankai.yuqing.service;
 
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -15,6 +16,8 @@ import java.util.concurrent.Executors;
 public class ReanalysisJobService {
 
     private final DataImportService dataImportService;
+    @Value("${yuqing.classified-results.enabled:true}")
+    private boolean externalClassifiedMode;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "yuqing-reanalysis");
         thread.setDaemon(true);
@@ -27,25 +30,37 @@ public class ReanalysisJobService {
     }
 
     public synchronized Map<String, Object> start() {
-        if ("RUNNING".equals(current.status())) return current.toMap();
+        if ("RUNNING".equals(current.status())) return jobMap();
         String id = UUID.randomUUID().toString();
         current = new JobState(id, "RUNNING", 5, "任务已创建", Instant.now(), null, null);
         executor.submit(() -> run(id));
-        return current.toMap();
+        return jobMap();
     }
 
     public Map<String, Object> status() {
-        return current.toMap();
+        return jobMap();
+    }
+
+    private Map<String, Object> jobMap() {
+        Map<String, Object> map = new LinkedHashMap<>(current.toMap());
+        map.put("mode", externalClassifiedMode ? "EXTERNAL_CLASSIFIED" : "LOCAL_RULES");
+        return map;
     }
 
     private void run(String id) {
         try {
             update(id, 15, "正在读取帖子和评论");
-            update(id, 35, "正在重新计算分类、情绪和风险");
-            dataImportService.reanalyzeAll();
+            if (externalClassifiedMode) {
+                update(id, 45, "正在保留最终分类并刷新事件聚合");
+                dataImportService.refreshEventAggregates();
+            } else {
+                update(id, 35, "正在重新计算分类、情绪和风险");
+                dataImportService.reanalyzeAll();
+            }
             update(id, 90, "正在汇总统计结果");
             Map<String, Object> result = new LinkedHashMap<>(dataImportService.getDataStats());
-            current = new JobState(id, "COMPLETED", 100, "重新分析完成",
+            current = new JobState(id, "COMPLETED", 100,
+                externalClassifiedMode ? "事件聚合刷新完成，最终分类未被修改" : "重新分析完成",
                 current.startedAt(), Instant.now(), result);
         } catch (Exception ex) {
             current = new JobState(id, "FAILED", current.progress(),

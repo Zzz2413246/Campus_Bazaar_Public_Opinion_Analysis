@@ -33,6 +33,13 @@ spring:
 
 # 数据文件路径
 yuqing:
+  cors:
+    # 生产部署时通过 YUQING_CORS_ALLOWED_ORIGINS 设置实际前端域名，多个地址用逗号分隔。
+    allowed-origins: ${YUQING_CORS_ALLOWED_ORIGINS:http://127.0.0.1:5173,http://localhost:5173}
+  classified-results:
+    enabled: true
+    # 五批已分类结果共 7,790 条；启动时以帖子 ID 幂等同步。
+    files: "../500.json,../1000.json,../1500.json,../2000.json,../3000.json"
   ai:
     # OpenAI-compatible /chat/completions API. Leave blank to use the local
     # structured-data engine; never commit a real key to this file.
@@ -46,9 +53,10 @@ yuqing:
     max-tokens: ${YUQING_AI_MAX_TOKENS:600}
   auth:
     nickname: ${YUQING_AUTH_NICKNAME:管理员}
-    password: ${YUQING_AUTH_PASSWORD:123456}
+    # 首次部署必须通过环境变量设置；修改密码后使用数据库中的加密口令。
+    password: ${YUQING_AUTH_PASSWORD:}
     session-hours: ${YUQING_AUTH_SESSION_HOURS:24}
-  # 新文件已包含旧 907 条数据，启动时按帖子 ID 增量同步，不会重复导入。
+  # 兼容旧原始数据模式；启用 classified-results 后不会读取这两个文件。
   data-file: "../posts(2).json"
   # 评论按 comment_id 增量同步，通过 thread_id 与帖子 id 关联。
   comment-file: "../comments.json"

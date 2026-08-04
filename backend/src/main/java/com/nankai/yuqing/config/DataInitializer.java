@@ -31,6 +31,9 @@ public class DataInitializer implements CommandLineRunner {
     @Value("${yuqing.data-file:../posts(2).json}")
     private String dataFile;
 
+    @Value("${yuqing.classified-results.enabled:false}")
+    private boolean classifiedResultsEnabled;
+
     public DataInitializer(DataImportService dataImportService,
                            ObjectMapper objectMapper) {
         this.dataImportService = dataImportService;
@@ -39,6 +42,10 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        if (classifiedResultsEnabled) {
+            log.info("已启用外部最终分类数据，跳过旧原始帖子导入");
+            return;
+        }
         try {
             List<Map<String, Object>> rawData = loadData();
             if (rawData == null || rawData.isEmpty()) {

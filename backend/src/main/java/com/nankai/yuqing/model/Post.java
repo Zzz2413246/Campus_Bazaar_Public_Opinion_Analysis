@@ -127,6 +127,28 @@ public class Post {
     @Column(name = "analysis_basis")
     private String analysisBasis;
 
+    /** 外部最终分类的综合标签：SAFETY / UNCERTAIN。 */
+    @Column(name = "screening_label")
+    private String screeningLabel;
+
+    @Column(name = "processing_status")
+    private String processingStatus;
+
+    @Column(name = "analysis_reason", columnDefinition = "TEXT")
+    private String analysisReason;
+
+    @Column(name = "evidence_spans", columnDefinition = "TEXT")
+    private String evidenceSpans;
+
+    @Column(name = "discussion_summary", columnDefinition = "TEXT")
+    private String discussionSummary;
+
+    @Column(name = "controversies", columnDefinition = "TEXT")
+    private String controversies;
+
+    @Column(name = "safety_clues", columnDefinition = "TEXT")
+    private String safetyClues;
+
     /** 人工复核状态：待复核 / 已确认 / 已修正 / 无关内容。 */
     @Column(name = "review_status")
     private String reviewStatus = "待复核";
@@ -225,6 +247,20 @@ public class Post {
     public void setCommentSuggestionCount(Integer commentSuggestionCount) { this.commentSuggestionCount = commentSuggestionCount; }
     public String getAnalysisBasis() { return analysisBasis; }
     public void setAnalysisBasis(String analysisBasis) { this.analysisBasis = analysisBasis; }
+    public String getScreeningLabel() { return screeningLabel; }
+    public void setScreeningLabel(String screeningLabel) { this.screeningLabel = screeningLabel; }
+    public String getProcessingStatus() { return processingStatus; }
+    public void setProcessingStatus(String processingStatus) { this.processingStatus = processingStatus; }
+    public String getAnalysisReason() { return analysisReason; }
+    public void setAnalysisReason(String analysisReason) { this.analysisReason = analysisReason; }
+    public String getEvidenceSpans() { return evidenceSpans; }
+    public void setEvidenceSpans(String evidenceSpans) { this.evidenceSpans = evidenceSpans; }
+    public String getDiscussionSummary() { return discussionSummary; }
+    public void setDiscussionSummary(String discussionSummary) { this.discussionSummary = discussionSummary; }
+    public String getControversies() { return controversies; }
+    public void setControversies(String controversies) { this.controversies = controversies; }
+    public String getSafetyClues() { return safetyClues; }
+    public void setSafetyClues(String safetyClues) { this.safetyClues = safetyClues; }
     public String getReviewStatus() { return reviewStatus; }
     public void setReviewStatus(String reviewStatus) { this.reviewStatus = reviewStatus; }
     public String getReviewedCategory() { return reviewedCategory; }

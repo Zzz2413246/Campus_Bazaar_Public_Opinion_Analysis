@@ -90,11 +90,12 @@ export function donutOption(categoryCount = 5): EChartsOption {
     legend: {
       orient: 'vertical', right: 0, top: 'center',
       icon: 'circle', itemWidth: 8, itemHeight: 8,
-      textStyle: { color: '#64748b', fontSize: 12 },
+      itemGap: 9,
+      textStyle: { color: '#64748b', fontSize: 11 },
     },
     title: {
       text: `总议题\n${categoryCount}类`,
-      left: '38%',
+      left: '29%',
       top: '50%',
       textAlign: 'center',
       textVerticalAlign: 'middle',
@@ -106,7 +107,7 @@ export function donutOption(categoryCount = 5): EChartsOption {
       },
     },
     series: [{
-      type: 'pie', radius: ['52%', '78%'], center: ['38%', '50%'],
+      type: 'pie', radius: ['48%', '72%'], center: ['29%', '50%'],
       avoidLabelOverlap: true,
       itemStyle: { borderColor: '#fff', borderWidth: 3, borderRadius: 6 },
       label: { show: false },

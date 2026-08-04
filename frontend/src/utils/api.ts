@@ -48,7 +48,7 @@ export const authApi = {
 
 // Dashboard 总览
 export const dashboardApi = {
-  get: () => http.get('/dashboard'),
+  get: (params?: { days?: number; startDate?: string; endDate?: string }) => http.get('/dashboard', { params }),
 }
 
 // 帖子监测

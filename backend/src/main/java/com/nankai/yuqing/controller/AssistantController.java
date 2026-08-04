@@ -71,7 +71,7 @@ public class AssistantController {
         } else if (question.contains("诈骗") || question.contains("骗")) {
             answer = answerFraud();
             type = "analysis";
-            sources.add(source("诈骗相关帖子", "/monitoring?category=诈骗与财产安全"));
+            sources.add(source("网络与数据安全相关帖子", "/monitoring?category=网络与数据安全"));
             followUps = List.of("当前有哪些高风险诈骗事件？", "给出防诈骗宣传建议");
         } else if (question.contains("高风险") || question.contains("风险")) {
             answer = answerHighRisk();
@@ -226,7 +226,7 @@ public class AssistantController {
      */
     private String answerDormIssues() {
         List<Post> posts = postRepository.findAll().stream()
-            .filter(p -> "宿舍设施问题".equals(p.getSafetyCategory()))
+            .filter(p -> "建筑与设施安全".equals(p.getSafetyCategory()))
             .toList();
 
         StringBuilder sb = new StringBuilder();
@@ -322,11 +322,11 @@ public class AssistantController {
      */
     private String answerFraud() {
         List<Post> posts = postRepository.findAll().stream()
-            .filter(p -> "诈骗与财产安全".equals(p.getSafetyCategory()))
+            .filter(p -> "网络与数据安全".equals(p.getSafetyCategory()))
             .toList();
 
         StringBuilder sb = new StringBuilder();
-        sb.append("根据分析，共识别到 ").append(posts.size()).append(" 条诈骗与财产安全相关讨论。\n\n");
+        sb.append("根据分析，共识别到 ").append(posts.size()).append(" 条网络与数据安全相关讨论。\n\n");
 
         if (posts.isEmpty()) {
             sb.append("近期未监测到诈骗相关讨论。");

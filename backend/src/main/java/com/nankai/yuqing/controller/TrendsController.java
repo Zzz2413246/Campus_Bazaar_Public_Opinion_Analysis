@@ -66,7 +66,6 @@ public class TrendsController {
         result.put("areaData", buildAreaData(rangePosts, dates));
         result.put("emotionData", buildEmotionData(rangePosts, dates));
         result.put("stackData", buildStackData(rangePosts, dates));
-        result.put("sourceData", buildSourceData(rangePosts));
         result.put("topItems", buildTopItems(rangePosts));
 
         Map<String, Object> range = new LinkedHashMap<>();
@@ -138,8 +137,16 @@ public class TrendsController {
     }
 
     private Map<String, Object> buildStackData(List<Post> posts, List<LocalDate> dates) {
-        // 类别名与 AnalysisService.SAFETY_KEYWORDS 完全一致
-        String[] cats = {"诈骗与财产安全", "消防与用电安全", "宿舍设施问题", "食堂与餐饮问题", "校园交通安全"};
+        List<String> cats = posts.stream()
+            .map(Post::getSafetyCategory)
+            .filter(Objects::nonNull)
+            .collect(java.util.stream.Collectors.groupingBy(
+                category -> category, LinkedHashMap::new, java.util.stream.Collectors.counting()))
+            .entrySet().stream()
+            .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+            .limit(6)
+            .map(Map.Entry::getKey)
+            .toList();
 
         // 先按类别计算每日序列
         Map<String, List<Integer>> seriesMap = new LinkedHashMap<>();
@@ -166,30 +173,8 @@ public class TrendsController {
 
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("labels", buildLabels(dates));      // 对齐前端 sd.labels
-        m.put("categories", Arrays.asList(cats));
+        m.put("categories", cats);
         m.put("series", seriesList);              // 对齐前端 sd.series
-        return m;
-    }
-
-    private Map<String, Object> buildSourceData(List<Post> posts) {
-        Map<String, Integer> catCount = new LinkedHashMap<>();
-        for (Post p : posts) {
-            String cat = p.getSafetyCategory() != null ? p.getSafetyCategory() : "其他";
-            catCount.merge(cat, 1, Integer::sum);
-        }
-
-        List<String> labels = new ArrayList<>();
-        List<Integer> values = new ArrayList<>();
-        catCount.entrySet().stream()
-            .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-            .forEach(e -> {
-                labels.add(e.getKey());
-                values.add(e.getValue());
-            });
-
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("labels", labels);
-        m.put("values", values);
         return m;
     }
 

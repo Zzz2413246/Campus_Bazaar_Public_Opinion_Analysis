@@ -60,6 +60,14 @@ const workbench = ref<any>({
 
 const trendData = ref<any>(null)
 const categoryDistribution = ref<any>(null)
+const trendRange = ref<'7d' | '30d' | 'custom'>('7d')
+const today = new Date()
+const thirtyDaysAgo = new Date(today)
+thirtyDaysAgo.setDate(today.getDate() - 29)
+const formatDateInput = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const trendStartDate = ref(formatDateInput(thirtyDaysAgo))
+const trendEndDate = ref(formatDateInput(today))
+const trendRangeLabel = computed(() => trendRange.value === '7d' ? '近 7 天' : trendRange.value === '30d' ? '近 30 天' : `${trendStartDate.value} 至 ${trendEndDate.value}`)
 
 const riskBadge = (r: string) => r === '高' ? 'badge-high' : r === '中' ? 'badge-medium' : 'badge-low'
 const riskDot = (r: string) => r === '高' ? 'dot-high' : r === '中' ? 'dot-medium' : 'dot-low'
@@ -87,7 +95,11 @@ const donutOpt = computed(() => {
   const base = donutOption(categoryCount) as any
   base.series[0].data = []
   if (Array.isArray(cd) && cd.length) {
-    base.series[0].data = cd.map((item: any, i: number) => ({
+    const sorted = [...cd].sort((a: any, b: any) => Number(b.value ?? b.count ?? 0) - Number(a.value ?? a.count ?? 0))
+    const topItems = sorted.slice(0, 6)
+    const otherValue = sorted.slice(6).reduce((sum: number, item: any) => sum + Number(item.value ?? item.count ?? 0), 0)
+    const displayItems = otherValue > 0 ? [...topItems, { name: '其他议题', value: otherValue }] : topItems
+    base.series[0].data = displayItems.map((item: any, i: number) => ({
       value: item.value ?? item.count ?? 0,
       name: item.name ?? item.category ?? '未知',
       itemStyle: { color: palette[i % palette.length] },
@@ -96,17 +108,29 @@ const donutOpt = computed(() => {
   return base
 })
 
+const trendCoverage = computed(() => {
+  const timedPosts = Number(trendData.value?.timedPosts || 0)
+  const totalPosts = Number(trendData.value?.totalPosts || 0)
+  return totalPosts ? `已按真实时间统计 ${timedPosts.toLocaleString()} / ${totalPosts.toLocaleString()} 条` : ''
+})
+
 function unwrap(res: any) {
   if (res && typeof res === 'object' && (res.code !== undefined || res.success !== undefined) && res.data !== undefined) return res.data
   return res
 }
 
 // 加载仪表盘数据，isManual 标记是否为手动刷新（仅在手动刷新时弹出成功提示）
+function trendParams() {
+  if (trendRange.value === '30d') return { days: 30 }
+  if (trendRange.value === 'custom') return { startDate: trendStartDate.value, endDate: trendEndDate.value }
+  return { days: 7 }
+}
+
 async function loadDashboard(isManual = false) {
   loading.value = true
   loadError.value = ''
   try {
-    const res: any = await dashboardApi.get()
+    const res: any = await dashboardApi.get(trendParams())
     const d = unwrap(res) || {}
     // 统计卡片 · 后端返回 stats 数组，每项含 label/value/change/trend/icon/accent/spark/sparkColor/textValue
     if (Array.isArray(d.stats) && d.stats.length) {
@@ -177,6 +201,18 @@ onMounted(() => {
 
 function openAlert(id: string) {
   if (id) router.push(`/events/${id}`)
+}
+
+function selectTrendRange(range: '7d' | '30d') {
+  trendRange.value = range
+  loadDashboard()
+}
+
+function applyCustomTrendRange() {
+  if (!trendStartDate.value || !trendEndDate.value) return toast.error('请选择完整的起止日期')
+  if (trendStartDate.value > trendEndDate.value) return toast.error('开始日期不能晚于结束日期')
+  trendRange.value = 'custom'
+  loadDashboard()
 }
 
 function openPendingReviews() {
@@ -413,12 +449,25 @@ function changeClass(item: any) {
     <!-- 图表区域 -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div class="card card-pad lg:col-span-2">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex items-start justify-between gap-3 mb-4 flex-wrap">
           <div>
-            <h3 class="section-title">近7天舆情趋势</h3>
-            <p class="section-sub mt-0.5">帖子总量 / 安全事件 / 高风险事件</p>
+            <h3 class="section-title">舆情趋势</h3>
+            <p class="section-sub mt-0.5">帖子总量 / 安全事件 / 高风险事件 · {{ trendRangeLabel }}</p>
+            <p v-if="trendCoverage" class="text-xs text-slate-400 mt-1">{{ trendCoverage }}</p>
           </div>
-          <span class="badge badge-info">7 天</span>
+          <div class="flex items-center gap-2 flex-wrap">
+            <div class="seg">
+              <button type="button" :class="['seg-item', trendRange === '7d' ? 'seg-item-active' : '']" @click="selectTrendRange('7d')">近7天</button>
+              <button type="button" :class="['seg-item', trendRange === '30d' ? 'seg-item-active' : '']" @click="selectTrendRange('30d')">近30天</button>
+              <button type="button" :class="['seg-item', trendRange === 'custom' ? 'seg-item-active' : '']" @click="trendRange = 'custom'">自定义</button>
+            </div>
+            <div v-if="trendRange === 'custom'" class="flex items-center gap-1.5">
+              <input v-model="trendStartDate" type="date" class="input !py-1.5 text-xs" :max="trendEndDate" aria-label="趋势开始日期" />
+              <span class="text-slate-400 text-xs">至</span>
+              <input v-model="trendEndDate" type="date" class="input !py-1.5 text-xs" :min="trendStartDate" aria-label="趋势结束日期" />
+              <button type="button" class="btn btn-primary !px-2.5 !py-1.5 text-xs" @click="applyCustomTrendRange">应用</button>
+            </div>
+          </div>
         </div>
         <div class="h-72">
           <BaseChart :option="trendOpt" height="100%" />
