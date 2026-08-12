@@ -71,7 +71,7 @@ public class DashboardController {
         // 情绪统计
         long negCount = allPosts.stream().filter(p -> "负面".equals(p.getEmotion())).count();
         long posCount = allPosts.stream().filter(p -> "正面".equals(p.getEmotion())).count();
-        String emotionStatus = negCount > posCount ? "偏负面" : posCount > negCount ? "偏正面" : "平稳";
+        String emotionStatus = overallEmotionStatus(totalPosts, negCount, posCount);
 
         // 真实按天统计（近7天）
         LocalDate today = LocalDate.now();
@@ -95,8 +95,23 @@ public class DashboardController {
         stats.add(stat("总帖子数", totalPosts, postChange, todayPosts >= yesterdayPosts ? "up" : "good", "message-square", "brand", postSpark));
         stats.add(stat("安全事件", eventCount, eventChange, "good", "siren", "amber", eventSpark));
         stats.add(stat("高风险事件", highRiskCount, highRiskCount > 0 ? "需关注" : "正常", highRiskCount > 0 ? "warn" : "good", "alert-triangle", "rose", highRiskSpark));
-        stats.add(statText("整体情绪", emotionStatus, "负面占比" + (totalPosts > 0 ? negCount*100/totalPosts : 0) + "%", negCount > posCount ? "warn" : "up", "smile", "emerald", emotionSpark));
+        long negativeRatio = totalPosts == 0 ? 0 : negCount * 100 / totalPosts;
+        stats.add(statText("整体情绪", emotionStatus, "负面占比" + negativeRatio + "%",
+            "偏负面".equals(emotionStatus) ? "warn" : "up", "smile", "emerald", emotionSpark));
         return stats;
+    }
+
+    /**
+     * 整体情绪需同时满足“占比达到关注阈值”和“明显高于相反情绪”，避免 1% 对 0%
+     * 这类极小差异被误写为偏负面或偏正面。
+     */
+    private String overallEmotionStatus(long total, long negative, long positive) {
+        if (total == 0) return "暂无数据";
+        long negativeRatio = negative * 100 / total;
+        long positiveRatio = positive * 100 / total;
+        if (negativeRatio >= 10 && negativeRatio - positiveRatio >= 5) return "偏负面";
+        if (positiveRatio >= 10 && positiveRatio - negativeRatio >= 5) return "偏正面";
+        return "整体平稳";
     }
 
     /** 计算环比变化文案 */

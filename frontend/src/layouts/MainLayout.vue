@@ -108,18 +108,17 @@ function isMenuActive(path: string) {
       <!-- Logo 区 -->
       <div
         :class="[
-          'flex items-center h-20 border-b border-white/10 flex-shrink-0',
-          appStore.sidebarCollapsed && !isMobile ? 'justify-center px-3' : 'px-4',
+          'flex items-center justify-center h-24 border-b border-white/10 flex-shrink-0 px-3',
         ]"
       >
         <div class="relative w-11 h-11 bg-white/10 border border-white/15 flex items-center justify-center flex-shrink-0 shadow-lg shadow-black/15 text-cyan-300">
           <span class="absolute inset-1 border border-cyan-400/20"></span>
-          <AppIcon name="shield" :size="24" />
+          <AppIcon name="shield" :size="23" />
           <span class="absolute right-1.5 bottom-1.5 w-1.5 h-1.5 bg-emerald-400 ring-2 ring-slate-900"></span>
         </div>
-        <div v-if="!appStore.sidebarCollapsed || isMobile" class="ml-3.5 min-w-0 overflow-hidden">
-          <div class="text-[18px] font-bold text-white whitespace-nowrap tracking-[0.04em] leading-tight">校园安全舆情</div>
-          <div class="text-[13px] text-slate-300 whitespace-nowrap leading-tight mt-1 tracking-wider">智能研判与预警平台</div>
+        <div v-if="!appStore.sidebarCollapsed || isMobile" class="ml-4 min-w-0 overflow-hidden py-0.5">
+          <div class="text-[17px] font-bold text-white whitespace-nowrap truncate leading-6 tracking-normal">校园安全舆情</div>
+          <div class="text-[11px] text-slate-300 whitespace-nowrap truncate leading-5 mt-1 tracking-wide">智能研判与预警平台</div>
         </div>
       </div>
 
