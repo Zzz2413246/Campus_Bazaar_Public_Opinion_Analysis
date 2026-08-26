@@ -1,10 +1,10 @@
 package com.nankai.yuqing.service;
 
 import com.nankai.yuqing.model.Post;
-import com.nankai.yuqing.repository.PostRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -13,15 +13,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** 任务二占位实现：标准未到位前不猜测评分逻辑，但数据和调用契约已经固定。 */
+/** 任务二末代分类工作流扩展入口。 */
 @Service
 public class Task2AnalysisExtension implements AnalysisTaskExtension {
+    private final Task2RealtimeClassificationService classifier;
 
-    private final PostRepository postRepository;
-
-    public Task2AnalysisExtension(PostRepository postRepository) {
-        this.postRepository = postRepository;
-    }
+    public Task2AnalysisExtension(Task2RealtimeClassificationService classifier) { this.classifier = classifier; }
 
     @Override
     public String code() {
@@ -32,65 +29,47 @@ public class Task2AnalysisExtension implements AnalysisTaskExtension {
     public Map<String, Object> status() {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("code", code());
-        result.put("name", "任务二风险等级接收");
-        result.put("state", "READY_FOR_LABELS");
-        result.put("ready", true);
+        result.put("name", "任务二实时分类工作流");
+        result.put("state", classifier.enabled() ? "READY" : "NEEDS_MODEL_CONFIG");
+        result.put("ready", classifier.enabled());
+        result.put("workflowVersion", Task2RealtimeClassificationService.VERSION);
+        result.put("model", classifier.modelName());
+        result.put("stages", List.of("主帖与评论初筛", "18类完整结构化分析", "低中高风险评估"));
         result.put("analysisInput", List.of(
             "id", "title", "content", "publishTime", "categoryName",
             "commentCount", "likeCount", "viewCount", "safetyCategory",
             "emotion", "location", "problem", "demand", "topic"
         ));
-        result.put("resultContract", Map.of(
-            "field", "riskLevel",
-            "allowedValues", List.of("低", "中", "高"),
-            "itemExample", Map.of("postId", "帖子ID", "riskLevel", "低")
+        result.put("supportedCategories", SafetyCategoryStandard.CODE_TO_NAME);
+        result.put("requestContract", Map.of(
+            "postIds", "可选；不传时从全量数据中按limit截取",
+            "limit", "1-20，默认5",
+            "dryRun", "true时只返回结果，不写入数据库"
         ));
-        result.put("message", "任务二只需返回每条帖子的低、中、高风险标记，不接收分数或阈值");
+        result.put("message", classifier.enabled()
+            ? "末代分类逻辑已接入，可小批量试运行或正式写回；人工复核结果不会被覆盖"
+            : "分类逻辑已接入；部署时配置 YUQING_AI_API_KEY、YUQING_AI_BASE_URL 和 YUQING_AI_MODEL 后启用");
         return result;
     }
 
     @Override
     public Map<String, Object> execute(List<Post> posts, Map<String, Object> request) {
-        Map<String, Object> result = new LinkedHashMap<>(status());
-        result.put("acceptedPosts", posts.size());
-        Object rawResults = request == null ? null : request.get("results");
-        Collection<?> items = rawResults instanceof Collection<?> collection ? collection : List.of();
-        Set<String> postIds = new HashSet<>(posts.stream().map(Post::getId).toList());
-        Map<String, Post> postsById = new LinkedHashMap<>();
-        posts.forEach(post -> postsById.put(post.getId(), post));
-        List<Map<String, String>> accepted = new ArrayList<>();
-        List<Map<String, String>> rejected = new ArrayList<>();
-        List<Post> updatedPosts = new ArrayList<>();
-
-        for (Object item : items) {
-            if (!(item instanceof Map<?, ?> value)) {
-                rejected.add(Map.of("reason", "结果项格式错误"));
-                continue;
-            }
-            String postId = Objects.toString(value.get("postId"), "").trim();
-            String riskLevel = normalizeRiskLevel(value.get("riskLevel"));
-            if (postId.isBlank() || !postIds.contains(postId)) {
-                rejected.add(Map.of("postId", postId, "reason", "帖子不存在"));
-            } else if (riskLevel == null) {
-                rejected.add(Map.of("postId", postId, "reason", "riskLevel 只能是低、中、高"));
-            } else {
-                accepted.add(Map.of("postId", postId, "riskLevel", riskLevel));
-                Post post = postsById.get(postId);
-                post.setRiskLevel(riskLevel);
-                updatedPosts.add(post);
-            }
+        if (!classifier.enabled()) return Map.of("error", "任务二模型未配置", "status", status());
+        int limit = Math.max(1, Math.min(20, number(request.get("limit"), 5)));
+        boolean dryRun = Boolean.TRUE.equals(request.get("dryRun"));
+        Set<String> requested = stringSet(request.get("postIds"));
+        List<Post> selected = posts.stream()
+            .filter(p -> requested.isEmpty() || requested.contains(p.getId()))
+            .limit(limit).toList();
+        Map<String,Object> result = new LinkedHashMap<>(status());
+        result.putAll(classifier.classify(selected, dryRun));
+        if (!requested.isEmpty()) {
+            Set<String> found = new HashSet<>(selected.stream().map(Post::getId).toList());
+            result.put("missingPostIds", requested.stream().filter(id -> !found.contains(id)).toList());
         }
-
-        if (!updatedPosts.isEmpty()) postRepository.saveAll(updatedPosts);
-        result.put("acceptedLabels", accepted);
-        result.put("acceptedLabelCount", accepted.size());
-        result.put("rejectedLabels", rejected);
-        result.put("executed", !accepted.isEmpty() && rejected.isEmpty());
         return result;
     }
 
-    private String normalizeRiskLevel(Object value) {
-        String level = Objects.toString(value, "").trim().replace("风险", "");
-        return Set.of("低", "中", "高").contains(level) ? level : null;
-    }
+    private int number(Object value,int fallback){return value instanceof Number n?n.intValue():fallback;}
+    private Set<String> stringSet(Object value){if(!(value instanceof Collection<?> c))return Set.of();Set<String>s=new LinkedHashSet<>();for(Object x:c){String v=Objects.toString(x,"").trim();if(!v.isBlank())s.add(v);}return s;}
 }

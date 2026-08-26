@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import AssistantMessageContent from '@/components/AssistantMessageContent.vue'
 import { useAssistantChat } from '@/composables/useAssistantChat'
@@ -18,7 +18,15 @@ const {
   copyMessage,
 } = useAssistantChat()
 
-onMounted(loadStatus)
+function openAssistant() {
+  open.value = true
+}
+
+onMounted(() => {
+  loadStatus()
+  window.addEventListener('yuqing:open-assistant', openAssistant)
+})
+onUnmounted(() => window.removeEventListener('yuqing:open-assistant', openAssistant))
 watch([() => messages.value.length, thinking, open], scrollToBottom)
 
 function scrollToBottom() {

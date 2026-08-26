@@ -7,6 +7,7 @@ import { postApi, settingsApi } from '@/utils/api'
 import { toast } from '@/utils/toast'
 import { useRoute, useRouter } from 'vue-router'
 import { postCategoryOptions } from '@/utils/safetyCategories'
+import { formatPostTime } from '@/utils/dateTime'
 
 const router = useRouter()
 const route = useRoute()
@@ -58,6 +59,7 @@ function unwrap(res: any) {
 }
 
 function mapPost(p: any) {
+  const publishTime = formatPostTime(p.publishTime, '')
   return {
     ...p,
     id: p.id,
@@ -70,8 +72,9 @@ function mapPost(p: any) {
     comments: p.commentCount ?? (typeof p.comments === 'number' ? p.comments : 0),
     likes: p.likeCount ?? p.likes ?? 0,
     views: p.viewCount ?? p.views ?? 0,
-    time: p.timeDesc ?? p.publishTime ?? p.time ?? '',
-    publishTime: p.publishTime ?? '',
+    time: publishTime || '时间待核实',
+    publishTime,
+    publishTimestamp: p.publishTimestamp ?? null,
     content: p.content ?? '',
     location: p.location ?? '',
     problem: p.problem ?? '',
@@ -82,7 +85,7 @@ function mapPost(p: any) {
     commentSuggestedCategory: p.commentSuggestedCategory ?? '',
     commentSuggestionCount: p.commentSuggestionCount ?? 0,
     analysisBasis: p.analysisBasis ?? '原帖文本',
-    screeningLabel: p.screeningLabel ?? '',
+    safetyRelevance: p.safetyRelevance ?? '',
     analysisReason: p.analysisReason ?? '',
     discussionSummary: p.discussionSummary ?? '',
     reviewStatus: p.reviewStatus ?? '待复核',

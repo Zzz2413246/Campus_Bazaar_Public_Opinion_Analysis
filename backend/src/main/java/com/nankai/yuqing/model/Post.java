@@ -127,9 +127,9 @@ public class Post {
     @Column(name = "analysis_basis")
     private String analysisBasis;
 
-    /** 外部最终分类的综合标签：SAFETY / UNCERTAIN。 */
-    @Column(name = "screening_label")
-    private String screeningLabel;
+    /** 安全舆情三分类：related / unrelated / uncertain。 */
+    @Column(name = "safety_relevance")
+    private String safetyRelevance;
 
     @Column(name = "processing_status")
     private String processingStatus;
@@ -247,8 +247,10 @@ public class Post {
     public void setCommentSuggestionCount(Integer commentSuggestionCount) { this.commentSuggestionCount = commentSuggestionCount; }
     public String getAnalysisBasis() { return analysisBasis; }
     public void setAnalysisBasis(String analysisBasis) { this.analysisBasis = analysisBasis; }
-    public String getScreeningLabel() { return screeningLabel; }
-    public void setScreeningLabel(String screeningLabel) { this.screeningLabel = screeningLabel; }
+    public String getSafetyRelevance() { return SafetyRelevance.normalizeNullable(safetyRelevance); }
+    public void setSafetyRelevance(String safetyRelevance) {
+        this.safetyRelevance = SafetyRelevance.normalizeNullable(safetyRelevance);
+    }
     public String getProcessingStatus() { return processingStatus; }
     public void setProcessingStatus(String processingStatus) { this.processingStatus = processingStatus; }
     public String getAnalysisReason() { return analysisReason; }

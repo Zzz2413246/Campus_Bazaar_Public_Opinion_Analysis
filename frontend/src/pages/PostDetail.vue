@@ -7,6 +7,7 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import { postApi, settingsApi } from '@/utils/api'
 import { toast } from '@/utils/toast'
 import { postCategoryOptions } from '@/utils/safetyCategories'
+import { formatPostTime } from '@/utils/dateTime'
 
 const route = useRoute()
 const router = useRouter()
@@ -37,8 +38,16 @@ async function loadDetail() {
       comments.value = []
       return
     }
-    post.value = data
-    comments.value = Array.isArray(data?.comments?.data) ? data.comments.data : []
+    post.value = {
+      ...data,
+      publishTime: formatPostTime(data.publishTime),
+    }
+    comments.value = Array.isArray(data?.comments?.data)
+      ? data.comments.data.map((comment: any) => ({
+          ...comment,
+          publishTime: formatPostTime(comment.publishTime),
+        }))
+      : []
     commentTotal.value = Number(data?.comments?.total ?? 0)
     reviewCategory.value = data.reviewedCategory || data.safetyCategory || '疑似主题无法确定'
     reviewRiskLevel.value = data.reviewedRiskLevel || data.riskLevel || '低'
@@ -68,23 +77,23 @@ function reviewClass(status: string) {
   return 'badge-neutral'
 }
 
-const screeningLabelNames: Record<string, string> = {
-  SAFETY: '安全相关',
-  NON_SAFETY: '非安全内容',
-  UNCERTAIN: '待核实',
+const safetyRelevanceNames: Record<string, string> = {
+  related: '安全相关',
+  unrelated: '非安全内容',
+  uncertain: '待核实',
 }
 
-function formatScreeningLabel(value: unknown) {
-  const label = String(value || '').trim()
-  if (!label) return '未提供最终判定'
-  const translated = screeningLabelNames[label]
-  return translated ? `${label}（${translated}）` : label
+function formatSafetyRelevance(value: unknown) {
+  const relevance = String(value || '').trim().toLowerCase()
+  if (!relevance) return '未提供最终判定'
+  const translated = safetyRelevanceNames[relevance]
+  return translated ? `${relevance}（${translated}）` : relevance
 }
 
-function localizeScreeningLabels(value: unknown) {
+function localizeSafetyRelevance(value: unknown) {
   return String(value || '').replace(
-    /\b(NON_SAFETY|UNCERTAIN|SAFETY)\b/g,
-    label => formatScreeningLabel(label),
+    /\b(related|unrelated|uncertain)\b/gi,
+    relevance => formatSafetyRelevance(relevance),
   )
 }
 
@@ -198,14 +207,14 @@ onMounted(() => {
             <h2 class="section-title">最终分类依据</h2>
             <p class="section-sub mt-1">依据《分类.docx》最终标准及主帖、评论区综合分析结果</p>
           </div>
-          <span :class="['badge', post.screeningLabel === 'UNCERTAIN' ? 'badge-warn' : post.screeningLabel === 'NON_SAFETY' ? 'badge-neutral' : 'badge-success']">
-            {{ formatScreeningLabel(post.screeningLabel) }}
+          <span :class="['badge', post.safetyRelevance === 'uncertain' ? 'badge-warn' : post.safetyRelevance === 'unrelated' ? 'badge-neutral' : 'badge-success']">
+            {{ formatSafetyRelevance(post.safetyRelevance) }}
           </span>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
           <div v-if="post.analysisReason" class="border border-slate-200 bg-slate-50/70 p-4">
             <div class="text-sm font-semibold text-slate-800">分类理由</div>
-            <p class="text-sm leading-6 text-slate-700 whitespace-pre-wrap mt-2">{{ localizeScreeningLabels(post.analysisReason) }}</p>
+            <p class="text-sm leading-6 text-slate-700 whitespace-pre-wrap mt-2">{{ localizeSafetyRelevance(post.analysisReason) }}</p>
           </div>
           <div v-if="post.discussionSummary" class="border border-brand-100 bg-brand-50/40 p-4">
             <div class="text-sm font-semibold text-slate-800">讨论摘要</div>

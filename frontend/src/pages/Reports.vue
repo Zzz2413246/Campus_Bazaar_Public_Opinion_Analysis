@@ -309,7 +309,7 @@ onMounted(loadReports)
         >{{ r.v }}</button>
       </div>
       <div class="flex-1"></div>
-      <button class="btn btn-primary" :disabled="generating" @click="generateReport">
+      <button class="btn btn-primary report-generate-button" type="button" :disabled="generating" @click="generateReport">
         <AppIcon name="plus" :size="16" /> {{ generating ? '生成中...' : generateLabel }}
       </button>
     </div>
@@ -402,8 +402,8 @@ onMounted(loadReports)
       <div class="space-y-2 mt-3">
         <div v-for="(item, index) in generationHistory" :key="`${item.time}-${index}`" class="flex items-center gap-3 text-sm border-b border-slate-100 pb-2">
           <span :class="['badge', item.status === '成功' ? 'badge-success' : 'badge-high']">{{ item.status }}</span>
-          <span class="text-slate-700">{{ item.message }}</span>
-          <span class="text-slate-400 ml-auto">{{ item.time }}</span>
+          <span class="min-w-0 break-words text-slate-700">{{ item.message }}</span>
+          <span class="flex-shrink-0 text-slate-400 ml-auto">{{ item.time }}</span>
         </div>
       </div>
     </section>
@@ -411,6 +411,13 @@ onMounted(loadReports)
 </template>
 
 <style scoped>
+.report-generate-button {
+  align-self: center;
+  min-height: 44px;
+  padding: 10px 18px;
+  line-height: 20px;
+}
+
 .report-preview-stage {
   min-height: 520px;
   padding: 24px;

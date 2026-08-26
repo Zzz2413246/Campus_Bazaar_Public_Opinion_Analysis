@@ -68,8 +68,9 @@ public class AuthInterceptor implements HandlerInterceptor {
     }
 
     private boolean requiresDataManagement(HttpServletRequest request) {
-        return !"GET".equalsIgnoreCase(request.getMethod())
-            && request.getRequestURI().startsWith("/api/data");
+        if ("GET".equalsIgnoreCase(request.getMethod())) return false;
+        String path = request.getRequestURI();
+        return path.startsWith("/api/data") || path.startsWith("/api/analysis/extensions");
     }
 
     private boolean requiresSettingsManagement(HttpServletRequest request) {

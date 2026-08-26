@@ -3,6 +3,7 @@ package com.nankai.yuqing.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nankai.yuqing.model.Post;
 import com.nankai.yuqing.model.PostComment;
+import com.nankai.yuqing.model.SafetyRelevance;
 import com.nankai.yuqing.repository.EventRepository;
 import com.nankai.yuqing.repository.PostCommentRepository;
 import com.nankai.yuqing.repository.PostRepository;
@@ -19,6 +20,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 
 /** 将外部已经完成筛选和深度分析的结果同步为平台权威数据。 */
 @Service
@@ -42,22 +46,23 @@ public class ClassifiedResultImportService {
     @Transactional
     public Map<String, Object> synchronize(List<JsonNode> rawResults) {
         Map<String, JsonNode> retained = new LinkedHashMap<>();
-        int nonSafety = 0;
+        int unrelated = 0;
         int normalizedUncertain = 0;
         for (JsonNode item : rawResults) {
             String id = text(item, "post_id");
-            String label = text(item, "overall_screening_label").toUpperCase(Locale.ROOT);
+            String rawRelevance = rawRelevance(item);
+            String relevance = SafetyRelevance.normalize(rawRelevance);
             if (id.isBlank()) continue;
             // 外部任务少量失败或未返回标签时仍保留记录，进入人工复核队列，避免
             // 因静默丢数造成看板、报告与原始数据的口径不一致。
-            if (!"SAFETY".equals(label) && !"UNCERTAIN".equals(label) && !"NON_SAFETY".equals(label)) {
-                ((com.fasterxml.jackson.databind.node.ObjectNode) item).put("overall_screening_label", "UNCERTAIN");
+            if (!isKnownRelevance(rawRelevance)) {
+                ((com.fasterxml.jackson.databind.node.ObjectNode) item).put("safety_relevance", SafetyRelevance.UNCERTAIN);
                 ((com.fasterxml.jackson.databind.node.ObjectNode) item).put("processing_status", "NEEDS_VERIFICATION");
-                label = "UNCERTAIN";
+                relevance = SafetyRelevance.UNCERTAIN;
                 normalizedUncertain++;
             }
-            if ("NON_SAFETY".equals(label)) {
-                nonSafety++;
+            if (SafetyRelevance.UNRELATED.equals(relevance)) {
+                unrelated++;
             }
             retained.put(id, item);
         }
@@ -117,8 +122,8 @@ public class ClassifiedResultImportService {
             reviewSnapshot.restore(post);
             posts.add(post);
             comments.addAll(applyComments(post, item, existingComments));
-            if ("UNCERTAIN".equals(post.getScreeningLabel())) uncertain++;
-            if ("SAFETY".equals(post.getScreeningLabel())) confirmedSafety++;
+            if (SafetyRelevance.UNCERTAIN.equals(post.getSafetyRelevance())) uncertain++;
+            if (SafetyRelevance.RELATED.equals(post.getSafetyRelevance())) confirmedSafety++;
         }
 
         postRepository.saveAll(posts);
@@ -128,9 +133,9 @@ public class ClassifiedResultImportService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("sourceRecords", rawResults.size());
         result.put("retained", posts.size());
-        result.put("confirmedSafety", confirmedSafety);
+        result.put("related", confirmedSafety);
         result.put("uncertain", uncertain);
-        result.put("nonSafety", nonSafety);
+        result.put("unrelated", unrelated);
         result.put("normalizedUncertain", normalizedUncertain);
         result.put("createdPlaceholders", created);
         result.put("removedOldPosts", obsoletePosts.size());
@@ -139,27 +144,36 @@ public class ClassifiedResultImportService {
     }
 
     private void applyResult(Post post, JsonNode item) {
-        String label = text(item, "overall_screening_label").toUpperCase(Locale.ROOT);
+        String relevance = SafetyRelevance.normalize(rawRelevance(item));
         JsonNode full = item.path("full_analysis");
         JsonNode postAnalysis = full.path("post_analysis");
         JsonNode discussion = full.path("discussion_analysis");
         String externalCategory = text(postAnalysis, "safety_category");
-        String category = "NON_SAFETY".equals(label)
-            ? null : SafetyCategoryStandard.fromExternal(externalCategory, label);
+        String category = SafetyRelevance.UNRELATED.equals(relevance)
+            ? null : SafetyCategoryStandard.fromExternal(externalCategory, relevance);
         String evidence = joinedText(postAnalysis.path("evidence_spans"));
         String reason = text(postAnalysis, "reason");
 
-        if (blank(post.getTitle())) post.setTitle(titleFrom(evidence, reason, label));
+        String rawPublishTime = text(item, "publish_time");
+        if (rawPublishTime.isBlank()) rawPublishTime = text(item, "publishTime");
+        ParsedPublishTime publishTime = parsePublishTime(rawPublishTime);
+        if (publishTime != null) {
+            post.setPublishTime(publishTime.localDateTime());
+            post.setPublishTimestamp(publishTime.epochSecond());
+        }
+
+        if (blank(post.getTitle())) post.setTitle(titleFrom(evidence, reason, relevance));
         if (blank(post.getContent())) {
             post.setContent(!evidence.isBlank() ? evidence
                 : "该条记录未附带原始正文，请结合帖子编号进行人工核实。");
         }
         if (blank(post.getCategoryName())) post.setCategoryName("校园集市（已分类）");
         post.setSafetyCategory(category);
-        post.setScreeningLabel(label);
-        post.setProcessingStatus(text(item, "processing_status"));
+        post.setSafetyRelevance(relevance);
+        post.setProcessingStatus(SafetyRelevance.UNRELATED.equals(relevance)
+            ? "SKIPPED_UNRELATED" : text(item, "processing_status"));
         post.setAnalysisReason(!reason.isBlank() ? reason
-            : "NON_SAFETY".equals(label)
+            : SafetyRelevance.UNRELATED.equals(relevance)
                 ? "外部分类结果判定为非安全内容，未进入深度分析。"
                 : "分类任务未返回完整分析，需人工核实原始内容。");
         post.setEvidenceSpans(evidence);
@@ -168,7 +182,7 @@ public class ClassifiedResultImportService {
         post.setSafetyClues(text(discussion, "safety_clues"));
         post.setProblem("外部最终分类：" + (category == null ? "非安全内容" : category));
         post.setTopic(category);
-        post.setAnalysisBasis("not_safety".equals(externalCategory) && "SAFETY".equals(label)
+        post.setAnalysisBasis("not_safety".equals(externalCategory) && SafetyRelevance.RELATED.equals(relevance)
             ? "评论区安全线索（外部最终分类）" : "外部最终分类");
         post.setAnalysisVersion(AnalysisService.ANALYSIS_VERSION);
         post.setClassificationConfidence(confidence(postAnalysis, item.path("post_screening")));
@@ -182,11 +196,12 @@ public class ClassifiedResultImportService {
         post.setCommentSignal(compact(text(discussion, "safety_clues"), 1000));
         post.setLikeCount(integer(discussion, "like_count", post.getLikeCount()));
         post.setCommentCount(integer(discussion, "reported_comment_count", post.getCommentCount()));
-        post.setRiskScore("SAFETY".equals(label) ? 50 : "UNCERTAIN".equals(label) ? 25 : 0);
-        post.setRiskLevel("SAFETY".equals(label) ? "中" : "低");
+        post.setRiskScore(SafetyRelevance.RELATED.equals(relevance) ? 50
+            : SafetyRelevance.UNCERTAIN.equals(relevance) ? 25 : 0);
+        post.setRiskLevel(SafetyRelevance.RELATED.equals(relevance) ? "中" : "低");
         post.setProvidedRiskLevel(null);
         post.setEventId(null);
-        post.setReviewStatus("UNCERTAIN".equals(label) ? "待复核" : "已确认");
+        post.setReviewStatus(SafetyRelevance.UNCERTAIN.equals(relevance) ? "待复核" : "已确认");
         post.setReviewedCategory(null);
         post.setReviewedRiskLevel(null);
         post.setReviewedEmotion(null);
@@ -194,6 +209,24 @@ public class ClassifiedResultImportService {
         post.setReviewer(null);
         post.setReviewedAt(null);
     }
+
+    private ParsedPublishTime parsePublishTime(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            OffsetDateTime parsed = OffsetDateTime.parse(value);
+            return new ParsedPublishTime(parsed.toLocalDateTime(), parsed.toEpochSecond());
+        } catch (DateTimeParseException ignored) {
+            try {
+                LocalDateTime parsed = LocalDateTime.parse(value);
+                return new ParsedPublishTime(parsed,
+                    parsed.atZone(ZoneId.of("Asia/Shanghai")).toEpochSecond());
+            } catch (DateTimeParseException invalid) {
+                return null;
+            }
+        }
+    }
+
+    private record ParsedPublishTime(LocalDateTime localDateTime, long epochSecond) {}
 
     private List<PostComment> applyComments(Post post,
                                             JsonNode item,
@@ -256,11 +289,11 @@ public class ClassifiedResultImportService {
         };
     }
 
-    private String titleFrom(String evidence, String reason, String label) {
+    private String titleFrom(String evidence, String reason, String relevance) {
         String source = !evidence.isBlank() ? evidence.lines().findFirst().orElse("") : reason;
         if (source.isBlank()) {
-            source = "UNCERTAIN".equals(label) ? "待核实的校园安全线索"
-                : "NON_SAFETY".equals(label) ? "已完成分类的非安全帖子" : "校园安全线索";
+            source = SafetyRelevance.UNCERTAIN.equals(relevance) ? "待核实的校园安全线索"
+                : SafetyRelevance.UNRELATED.equals(relevance) ? "已完成分类的非安全帖子" : "校园安全线索";
         }
         return source.length() > 60 ? source.substring(0, 60) + "…" : source;
     }
@@ -280,6 +313,18 @@ public class ClassifiedResultImportService {
     private String text(JsonNode node, String field) {
         JsonNode value = node.path(field);
         return value.isMissingNode() || value.isNull() ? "" : value.asText("").trim();
+    }
+
+    private String rawRelevance(JsonNode item) {
+        String canonical = text(item, "safety_relevance");
+        return canonical.isBlank() ? text(item, "overall_screening_label") : canonical;
+    }
+
+    private boolean isKnownRelevance(String value) {
+        if (value == null || value.isBlank()) return false;
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return SafetyRelevance.VALUES.contains(normalized)
+            || Set.of("safety", "non_safety", "non-safety").contains(normalized);
     }
 
     private Integer integer(JsonNode node, String field) {

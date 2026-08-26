@@ -51,6 +51,16 @@ yuqing:
     # reasoning by default unless this parameter is explicitly set to false.
     enable-thinking: ${YUQING_AI_ENABLE_THINKING:false}
     max-tokens: ${YUQING_AI_MAX_TOKENS:600}
+  task2:
+    # 第二位同学末代三阶段分类工作流。默认复用 AI 配置，也可单独覆盖。
+    api-key: ${YUQING_TASK2_API_KEY:${YUQING_AI_API_KEY:}}
+    base-url: ${YUQING_TASK2_BASE_URL:${YUQING_AI_BASE_URL:https://vip.dmxapi.com/v1}}
+    model: ${YUQING_TASK2_MODEL:${YUQING_AI_MODEL:dsV4pro}}
+    timeout-seconds: ${YUQING_TASK2_TIMEOUT_SECONDS:120}
+    max-tokens: ${YUQING_TASK2_MAX_TOKENS:6000}
+    # 为避免导入大量历史数据时意外产生模型费用，默认关闭自动实时分类。
+    auto-classify-imports: ${YUQING_TASK2_AUTO_CLASSIFY_IMPORTS:false}
+    auto-classify-limit: ${YUQING_TASK2_AUTO_CLASSIFY_LIMIT:20}
   auth:
     nickname: ${YUQING_AUTH_NICKNAME:管理员}
     # 首次部署必须通过环境变量设置；修改密码后使用数据库中的加密口令。

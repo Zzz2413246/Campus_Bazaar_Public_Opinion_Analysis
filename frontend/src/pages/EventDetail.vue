@@ -7,6 +7,7 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import { miniTrendOption, radarOption } from '../utils/chartTheme'
 import { eventApi } from '@/utils/api'
 import { toast } from '@/utils/toast'
+import { formatPostTime } from '@/utils/dateTime'
 
 const router = useRouter()
 const route = useRoute()
@@ -241,7 +242,10 @@ onMounted(async () => {
         : cur.trend,
       relatedPosts: Array.isArray(d.relatedPosts) && d.relatedPosts.length
         ? d.relatedPosts.map((p: any) => ({
-            time: p.time ?? p.createdAt ?? '',
+            id: String(p.id ?? ''),
+            publishTime: formatPostTime(p.publishTime ?? p.time ?? p.createdAt),
+            publishTimestamp: p.publishTimestamp ?? null,
+            time: formatPostTime(p.publishTime ?? p.time ?? p.createdAt),
             source: p.source ?? p.platform ?? '',
             content: p.content ?? p.text ?? '',
             emotion: p.emotion ?? p.sentiment ?? '',

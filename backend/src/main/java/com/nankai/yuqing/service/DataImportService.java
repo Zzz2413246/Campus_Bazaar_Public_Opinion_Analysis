@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.time.Duration;
@@ -29,15 +31,30 @@ public class DataImportService {
     private final EventRepository eventRepository;
     private final AnalysisService analysisService;
     private final CommentImportService commentImportService;
+    private final Task2RealtimeClassificationService realtimeClassifier;
+    @Value("${yuqing.task2.auto-classify-imports:false}")
+    private boolean autoClassifyImports;
+    @Value("${yuqing.task2.auto-classify-limit:20}")
+    private int autoClassifyLimit;
 
     public DataImportService(PostRepository postRepository,
                              EventRepository eventRepository,
                              AnalysisService analysisService,
                              CommentImportService commentImportService) {
+        this(postRepository, eventRepository, analysisService, commentImportService, null);
+    }
+
+    @Autowired
+    public DataImportService(PostRepository postRepository,
+                             EventRepository eventRepository,
+                             AnalysisService analysisService,
+                             CommentImportService commentImportService,
+                             Task2RealtimeClassificationService realtimeClassifier) {
         this.postRepository = postRepository;
         this.eventRepository = eventRepository;
         this.analysisService = analysisService;
         this.commentImportService = commentImportService;
+        this.realtimeClassifier = realtimeClassifier;
     }
 
     /**
@@ -113,7 +130,11 @@ public class DataImportService {
             if (!newPosts.isEmpty()) postRepository.saveAll(newPosts);
             if (!changedPosts.isEmpty()) postRepository.saveAll(new ArrayList<>(changedPosts.values()));
         }
-        if (imported > 0 || rawFieldsChanged) {
+        Map<String, Object> realtimeResult = null;
+        if (imported > 0 && autoClassifyImports && realtimeClassifier != null && realtimeClassifier.enabled()) {
+            List<Post> candidates = newPosts.stream().limit(Math.max(1, Math.min(20, autoClassifyLimit))).toList();
+            realtimeResult = realtimeClassifier.classify(candidates, false);
+        } else if (imported > 0 || rawFieldsChanged) {
             analysisService.analyzeAllPosts();
         }
         if (imported > 0 || updated > 0 || updatedRiskLabels > 0) {
@@ -130,6 +151,8 @@ public class DataImportService {
         result.put("skipped", skipped);
         result.put("errors", errors);
         result.put("duplicatesMerged", duplicatesMerged);
+        result.put("realtimeClassificationEnabled", autoClassifyImports && realtimeClassifier != null && realtimeClassifier.enabled());
+        if (realtimeResult != null) result.put("realtimeClassification", realtimeResult);
         return result;
     }
 

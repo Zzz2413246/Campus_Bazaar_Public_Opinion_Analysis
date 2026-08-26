@@ -3,18 +3,22 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import RefreshButton from '../components/RefreshButton.vue'
-import { dataApi, analysisExtensionApi, auditApi, authApi } from '@/utils/api'
+import { dataApi, analysisExtensionApi, auditApi } from '@/utils/api'
 import { toast } from '@/utils/toast'
 
 const loading = ref(false)
 const stats = ref<any>({})
+const showTask2ManualControls = import.meta.env.VITE_SHOW_TASK2_MANUAL_CONTROLS === 'true'
+const showJsonImport = import.meta.env.VITE_SHOW_JSON_IMPORT === 'true'
+const showClearData = import.meta.env.VITE_SHOW_CLEAR_DATA === 'true'
 const task2Status = ref<any>({})
+const task2Running = ref(false)
+const task2Result = ref<any>(null)
 const auditLogs = ref<any[]>([])
 const auditSummary = ref<any>({})
 const auditTotal = ref(0)
 const auditPage = ref(1)
 const auditAction = ref('')
-const accountInfo = ref<any>({ role: localStorage.getItem('yuqing_role') || 'ADMIN', permissions: [] })
 const quality = computed(() => stats.value.quality || { score: 0, status: '检查中', dimensions: {}, issues: [] })
 const importKind = ref<'posts' | 'comments'>('posts')
 const importFileName = ref('')
@@ -44,16 +48,16 @@ async function loadStats() {
     if (d && typeof d === 'object') {
       stats.value = d
     }
-    const [task2, audit, summary, account] = await Promise.allSettled([
-      analysisExtensionApi.status('task2'),
+    const [audit, summary] = await Promise.allSettled([
       auditApi.logs({ page: auditPage.value, size: 10, action: auditAction.value || undefined }),
       auditApi.summary(),
-      authApi.me(),
     ])
-    task2Status.value = task2.status === 'fulfilled' ? unwrap(task2.value) || {} : {}
     if (audit.status === 'fulfilled') applyAudit(unwrap(audit.value))
     auditSummary.value = summary.status === 'fulfilled' ? unwrap(summary.value) || {} : {}
-    accountInfo.value = account.status === 'fulfilled' ? unwrap(account.value) || accountInfo.value : accountInfo.value
+    if (showTask2ManualControls) {
+      const task2: any = await analysisExtensionApi.status('task2').catch(() => null)
+      task2Status.value = unwrap(task2) || {}
+    }
   } catch (err) {
     console.warn('数据统计加载失败', err)
   } finally {
@@ -64,6 +68,23 @@ async function loadStats() {
 function applyAudit(data: any) {
   auditLogs.value = Array.isArray(data?.data) ? data.data : []
   auditTotal.value = Number(data?.total || 0)
+}
+
+async function runTask2(dryRun = true) {
+  if (!task2Status.value.ready || task2Running.value) return
+  task2Running.value = true
+  task2Result.value = null
+  try {
+    const res: any = await analysisExtensionApi.run('task2', { limit: 5, dryRun })
+    task2Result.value = unwrap(res) || res
+    toast.success(dryRun ? '分类试运行完成' : '实时分类已写回')
+    if (!dryRun) await loadStats()
+  } catch (err) {
+    console.warn('任务二运行失败', err)
+    toast.error('任务二运行失败，请检查模型配置和服务日志')
+  } finally {
+    task2Running.value = false
+  }
 }
 
 async function loadAudit(page = 1) {
@@ -90,14 +111,6 @@ function formatTime(value: unknown) {
   if (!value) return '-'
   const date = new Date(String(value))
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN')
-}
-
-function permissionName(value: string) {
-  const names: Record<string, string> = {
-    VIEW_DATA: '查看数据', REVIEW_POST: '人工复核', MANAGE_EVENT: '事件处置',
-    MANAGE_SETTINGS: '系统设置', MANAGE_DATA: '数据管理', VIEW_AUDIT: '查看审计',
-  }
-  return names[value] || value
 }
 
 async function handleReanalyze() {
@@ -320,25 +333,9 @@ onUnmounted(() => {
       </p>
     </div>
 
-    <!-- 权限与审计 -->
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 mt-5">
+    <!-- 操作审计；账号权限统一在个人中心展示 -->
+    <div class="mt-5">
       <section class="card card-pad">
-        <div class="flex items-center justify-between gap-3 mb-4">
-          <div>
-            <h3 class="section-title">当前账号权限</h3>
-            <p class="text-xs text-slate-500 mt-1">关键写操作由后端权限校验</p>
-          </div>
-          <span class="badge badge-success">{{ accountInfo.role === 'ADMIN' ? '管理员' : accountInfo.role }}</span>
-        </div>
-        <div class="space-y-2">
-          <div v-for="permission in accountInfo.permissions || []" :key="permission" class="flex items-center gap-2 text-sm text-slate-700 border-b border-slate-100 pb-2">
-            <AppIcon name="check" :size="15" class="text-emerald-600" /> {{ permissionName(permission) }}
-          </div>
-        </div>
-        <p class="text-xs text-slate-400 mt-4">系统不会在审计记录中保存密码、令牌或请求正文。</p>
-      </section>
-
-      <section class="card card-pad xl:col-span-2">
         <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
           <div>
             <h3 class="section-title">关键操作审计</h3>
@@ -524,7 +521,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 可视化导入 -->
-    <div class="card card-pad mt-5">
+    <div v-if="showJsonImport" class="card card-pad mt-5">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 class="section-title">JSON 数据导入</h3>
@@ -618,7 +615,7 @@ onUnmounted(() => {
           <AppIcon name="refresh-cw" :size="16" />
           {{ reanalysisJob.mode === 'EXTERNAL_CLASSIFIED' ? '刷新事件聚合' : '重新分析所有数据' }}
         </button>
-        <button @click="handleClear" class="btn inline-flex items-center gap-2 text-rose-600 border-rose-200 hover:bg-rose-50">
+        <button v-if="showClearData" @click="handleClear" class="btn inline-flex items-center gap-2 text-rose-600 border-rose-200 hover:bg-rose-50">
           <AppIcon name="trash-2" :size="16" /> 清空所有数据
         </button>
       </div>
@@ -637,25 +634,42 @@ onUnmounted(() => {
           <li v-if="reanalysisJob.mode === 'EXTERNAL_CLASSIFIED'">当前采用外部最终分类；刷新操作只更新事件聚合，不会覆盖现有分类和人工复核结果</li>
           <li v-else>重新分析会对所有帖子重新进行分类、情绪识别和风险评分，适用于更新关键词规则后</li>
           <li>评论通过 thread_id 与帖子 id 自动关联，只在形成同类风险佐证时参与加权</li>
-          <li>清空数据后需重新导入，谨慎操作</li>
-          <li>增量导入可通过 API POST /api/data/import 进行</li>
-          <li>评论增量导入可通过 API POST /api/data/comments/import 进行</li>
+          <li v-if="showClearData">清空数据后需重新导入，谨慎操作</li>
+          <li v-if="showJsonImport">增量导入可通过 API POST /api/data/import 进行</li>
+          <li v-if="showJsonImport">评论增量导入可通过 API POST /api/data/comments/import 进行</li>
         </ul>
       </div>
     </div>
 
-    <!-- 后续任务扩展 -->
-    <div class="card card-pad mt-5">
+    <!-- 实时分类扩展 -->
+    <div v-if="showTask2ManualControls" class="card card-pad mt-5">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 class="section-title">分析标准任务二</h3>
-          <p class="text-sm text-slate-500 mt-1">独立扩展位，不影响当前核心分析结果</p>
+          <h3 class="section-title">实时分类工作流</h3>
+          <p class="text-sm text-slate-500 mt-1">主帖/评论初筛 → 18 类完整分析 → 低中高风险评估</p>
         </div>
         <span :class="task2Status.ready ? 'text-emerald-700 bg-emerald-50' : 'text-amber-700 bg-amber-50'" class="text-xs px-3 py-1.5 border border-current/10">
-          {{ task2Status.ready ? '已就绪' : '等待分析标准' }}
+          {{ task2Status.ready ? '模型已就绪' : '等待模型配置' }}
         </span>
       </div>
-      <p class="text-xs text-slate-400 mt-3">{{ task2Status.message || '接口已预留，收到标准后可直接接入。' }}</p>
+      <p class="text-xs text-slate-500 mt-3 leading-5">{{ task2Status.message || '分类逻辑已接入。' }}</p>
+      <div v-if="Array.isArray(task2Status.stages)" class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+        <div v-for="(stage, index) in task2Status.stages" :key="stage" class="px-4 py-3 border border-slate-200 bg-slate-50 text-sm text-slate-700">
+          <span class="text-brand-600 font-semibold mr-2">{{ String(Number(index) + 1).padStart(2, '0') }}</span>{{ stage }}
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-3 mt-4">
+        <button class="btn btn-ghost" :disabled="!task2Status.ready || task2Running" @click="runTask2(true)">
+          {{ task2Running ? '运行中...' : '试运行前 5 条' }}
+        </button>
+        <button class="btn btn-primary" :disabled="!task2Status.ready || task2Running" @click="runTask2(false)">
+          正式分类前 5 条
+        </button>
+      </div>
+      <div v-if="task2Result" class="mt-4 px-4 py-3 bg-slate-50 border border-slate-200 text-sm text-slate-600">
+        本次请求 {{ task2Result.requested || 0 }} 条，成功 {{ task2Result.succeeded || 0 }} 条，失败 {{ task2Result.failed || 0 }} 条
+        <span v-if="task2Result.dryRun" class="ml-2 text-amber-600">（试运行，未写入数据库）</span>
+      </div>
     </div>
   </div>
 </template>

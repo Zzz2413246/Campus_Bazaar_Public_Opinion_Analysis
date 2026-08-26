@@ -1,6 +1,6 @@
 ﻿﻿﻿﻿﻿<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { eventApi, settingsApi } from '@/utils/api'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -9,6 +9,7 @@ import RefreshButton from '@/components/RefreshButton.vue'
 import { finalSafetyCategories } from '@/utils/safetyCategories'
 
 const router = useRouter()
+const route = useRoute()
 
 const loading = ref(false)
 const loadError = ref('')
@@ -16,7 +17,7 @@ const loadError = ref('')
 const events = ref<any[]>([])
 
 // 筛选条件变量
-const filterRisk = ref('')
+const filterRisk = ref(['低', '中', '高'].includes(String(route.query.risk || '')) ? String(route.query.risk) : '')
 const filterCategory = ref('')
 const filterStatus = ref('')
 const categoryOptions = ref<string[]>(finalSafetyCategories())

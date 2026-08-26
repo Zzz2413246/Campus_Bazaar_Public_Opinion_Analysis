@@ -109,11 +109,16 @@ public class EventController {
         result.put("alertTriggered", !alertTriggers.isEmpty());
 
         // 相关帖子
-        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("HH:mm");
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
         List<Map<String, Object>> posts = new ArrayList<>();
         for (Post p : relatedPosts) {
             Map<String, Object> pm = new LinkedHashMap<>();
-            pm.put("time", p.getPublishTime() != null ? p.getPublishTime().format(fmt) : "");
+            String publishTime = p.getPublishTime() != null ? p.getPublishTime().format(fmt) : "";
+            pm.put("id", p.getId());
+            pm.put("title", p.getTitle());
+            pm.put("publishTime", publishTime);
+            pm.put("publishTimestamp", p.getPublishTimestamp());
+            pm.put("time", publishTime);
             pm.put("source", p.getCategoryName());
             pm.put("emotion", emotionEmoji(p.getEmotion()));
             pm.put("comments", p.getCommentCount());

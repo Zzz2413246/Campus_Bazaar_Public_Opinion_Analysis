@@ -240,6 +240,24 @@ class AnalysisServiceTest {
         assertNull(post.getEventId());
     }
 
+    @Test
+    void postWithoutRealPublishTimeCannotCreateAnEventForToday() {
+        PostRepository posts = mock(PostRepository.class);
+        EventRepository events = mock(EventRepository.class);
+        Post post = post("时间缺失的高风险帖子", "宿舍插座冒烟且有焦味", "校园集市");
+        post.setSafetyCategory("消防与电气安全");
+        post.setRiskScore(90);
+        post.setRiskLevel("高");
+        post.setPublishTime(null);
+        when(posts.findAll()).thenReturn(List.of(post));
+        when(events.findAll()).thenReturn(List.of());
+
+        new AnalysisService(posts, events).aggregateEvents();
+
+        verify(events).saveAll(argThat(saved -> !saved.iterator().hasNext()));
+        assertNull(post.getEventId());
+    }
+
     private Post post(String title, String content, String source) {
         Post post = new Post();
         post.setId(title);

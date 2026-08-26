@@ -5,7 +5,6 @@ import BaseChart from '../components/BaseChart.vue'
 import AppIcon from '../components/AppIcon.vue'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import ErrorState from '@/components/ErrorState.vue'
-import RefreshButton from '@/components/RefreshButton.vue'
 import TrendAnalysis from '@/pages/Trends.vue'
 import { toast } from '@/utils/toast'
 import { trendLineOption, donutOption, sparklineOption, palette } from '../utils/chartTheme'
@@ -252,10 +251,6 @@ function changeClass(item: any) {
 
 <template>
   <div class="page">
-    <!-- 顶部操作栏：刷新按钮 -->
-    <div class="flex items-center justify-end mb-1">
-      <RefreshButton :on-refresh="() => loadDashboard(true)" />
-    </div>
     <!-- 加载状态 -->
     <LoadingSpinner v-if="loading" />
     <ErrorState

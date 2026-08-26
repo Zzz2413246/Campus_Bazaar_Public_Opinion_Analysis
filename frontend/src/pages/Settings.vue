@@ -6,6 +6,8 @@ import ErrorState from '@/components/ErrorState.vue'
 import { toast } from '@/utils/toast'
 
 const loading = ref(false)
+const showCategoryEditing = import.meta.env.VITE_SHOW_CATEGORY_EDITING === 'true'
+const showAlertRuleEditing = import.meta.env.VITE_SHOW_ALERT_RULE_EDITING === 'true'
 const loadError = ref('')
 const saving = ref(false)
 const saveMsg = ref('')
@@ -227,14 +229,14 @@ function isBuiltin(name: string) {
               </div>
             </div>
           </div>
-          <div class="flex gap-1 flex-shrink-0">
+          <div v-if="showCategoryEditing" class="flex gap-1 flex-shrink-0">
             <button v-if="!isBuiltin(c)" @click="editCategory(i)" class="text-xs text-slate-400 hover:text-brand-500 cursor-pointer px-2 py-1 hover:bg-white transition-colors">编辑</button>
             <button @click="removeCategory(i)" class="text-xs text-slate-400 hover:text-rose-500 cursor-pointer px-2 py-1 hover:bg-white transition-colors">删除</button>
           </div>
         </div>
       </div>
-      <button @click="addCategory" class="btn btn-ghost mt-4 w-full">+ 新增分类及识别关键词</button>
-      <div class="flex items-center gap-3 mt-3">
+      <button v-if="showCategoryEditing" @click="addCategory" class="btn btn-ghost mt-4 w-full">+ 新增分类及识别关键词</button>
+      <div v-if="showCategoryEditing" class="flex items-center gap-3 mt-3">
         <button @click="saveConfirmOpen = true" :disabled="saving" class="btn btn-primary">
           {{ saving ? '保存中...' : '保存分类' }}
         </button>
@@ -243,7 +245,7 @@ function isBuiltin(name: string) {
     </div>
 
     <!-- 风险预警规则 -->
-    <div class="card card-pad">
+    <div v-if="showAlertRuleEditing" class="card card-pad">
       <div class="flex items-start justify-between gap-4 mb-5 flex-wrap">
         <div>
           <h3 class="section-title">预警辅助规则</h3>
@@ -324,7 +326,7 @@ function isBuiltin(name: string) {
     </div>
 
     <Teleport to="body">
-      <div v-if="categoryDialog" class="fixed inset-0 z-[95] flex items-center justify-center p-5" @keydown.esc="categoryDialog = null">
+      <div v-if="showCategoryEditing && categoryDialog" class="fixed inset-0 z-[95] flex items-center justify-center p-5" @keydown.esc="categoryDialog = null">
         <button class="absolute inset-0 bg-slate-950/40" aria-label="关闭分类编辑" @click="categoryDialog = null"></button>
         <section class="relative w-full max-w-lg bg-white shadow-2xl p-6" role="dialog" aria-modal="true" aria-labelledby="category-dialog-title">
           <h2 id="category-dialog-title" class="text-lg font-semibold text-slate-900">
@@ -350,7 +352,7 @@ function isBuiltin(name: string) {
         </section>
       </div>
 
-      <div v-if="saveConfirmOpen" class="fixed inset-0 z-[96] flex items-center justify-center p-5" @keydown.esc="saveConfirmOpen = false">
+      <div v-if="(showCategoryEditing || showAlertRuleEditing) && saveConfirmOpen" class="fixed inset-0 z-[96] flex items-center justify-center p-5" @keydown.esc="saveConfirmOpen = false">
         <button class="absolute inset-0 bg-slate-950/40" aria-label="关闭保存确认" @click="saveConfirmOpen = false"></button>
         <section class="relative w-full max-w-lg bg-white shadow-2xl p-6" role="dialog" aria-modal="true" aria-labelledby="save-settings-title">
           <h2 id="save-settings-title" class="text-lg font-semibold text-slate-900">保存设置并刷新数据状态？</h2>

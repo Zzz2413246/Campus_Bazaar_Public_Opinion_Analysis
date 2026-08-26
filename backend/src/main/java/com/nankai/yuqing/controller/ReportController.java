@@ -58,6 +58,7 @@ public class ReportController {
     }
 
     private List<Map<String, Object>> dailyReports(List<Post> posts, List<EventEntity> events) {
+        // 始终展示最近 7 个自然日；无帖子的日期保留日报，各项为 0。
         List<Map<String, Object>> reports = new ArrayList<>();
         for (int i = 0; i < 7; i++) {
             LocalDate date = LocalDate.now().minusDays(i);
@@ -67,13 +68,15 @@ public class ReportController {
     }
 
     private List<Map<String, Object>> weeklyReports(List<Post> posts, List<EventEntity> events) {
-        List<Map<String, Object>> reports = new ArrayList<>();
-        LocalDate thisMonday = LocalDate.now().with(DayOfWeek.MONDAY);
-        for (int i = 0; i < 6; i++) {
-            LocalDate start = thisMonday.minusWeeks(i);
-            reports.add(periodSummary("weekly", start, start.plusDays(6), posts, events));
-        }
-        return reports;
+        return posts.stream()
+            .map(Post::getPublishTime)
+            .filter(Objects::nonNull)
+            .map(time -> time.toLocalDate().with(DayOfWeek.MONDAY))
+            .distinct()
+            .sorted(Comparator.reverseOrder())
+            .limit(6)
+            .map(start -> periodSummary("weekly", start, start.plusDays(6), posts, events))
+            .toList();
     }
 
     private List<Map<String, Object>> eventReports(List<EventEntity> events) {
@@ -214,7 +217,10 @@ public class ReportController {
             .append("## 二、事件摘要\n\n")
             .append(Objects.toString(event.getSummary(), "暂无摘要")).append("\n\n")
             .append("## 三、相关讨论\n\n");
+        DateTimeFormatter discussionTime = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
         posts.stream().limit(10).forEach(post -> content.append("- ")
+            .append(post.getPublishTime() == null ? "[时间待核实] "
+                : "[" + post.getPublishTime().format(discussionTime) + "] ")
             .append(Objects.toString(post.getTitle(), Objects.toString(post.getContent(), "无标题")))
             .append("\n"));
         content.append("\n## 四、处置建议\n\n")
@@ -249,12 +255,18 @@ public class ReportController {
             "neutral", posts.stream().filter(post -> "中性".equals(effectiveEmotion(post))).count(),
             "negative", posts.stream().filter(post -> "负面".equals(effectiveEmotion(post))).count()));
         result.put("keyEvents", List.of(eventReportItem(event)));
-        result.put("relatedDiscussions", posts.stream().limit(10).map(post -> Map.of(
-            "id", post.getId(),
-            "title", Objects.toString(post.getTitle(), Objects.toString(post.getContent(), "无标题帖子")),
-            "risk", effectiveRisk(post),
-            "emotion", Objects.toString(effectiveEmotion(post), "中性")
-        )).toList());
+        result.put("relatedDiscussions", posts.stream().limit(10).map(post -> {
+            Map<String, Object> discussion = new LinkedHashMap<>();
+            discussion.put("id", post.getId());
+            discussion.put("title", Objects.toString(post.getTitle(),
+                Objects.toString(post.getContent(), "无标题帖子")));
+            discussion.put("publishTime", post.getPublishTime() == null
+                ? "" : post.getPublishTime().format(discussionTime));
+            discussion.put("publishTimestamp", post.getPublishTimestamp());
+            discussion.put("risk", effectiveRisk(post));
+            discussion.put("emotion", Objects.toString(effectiveEmotion(post), "中性"));
+            return discussion;
+        }).toList());
         result.put("recommendations", "高".equals(event.getRisk())
             ? List.of("立即核实事件事实并明确牵头负责人。",
                 "持续跟踪关联帖子与评论变化。",

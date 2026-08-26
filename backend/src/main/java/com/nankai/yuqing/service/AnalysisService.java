@@ -599,6 +599,9 @@ public class AnalysisService {
 
         Map<String, List<Post>> grouped = allPosts.stream()
             .filter(this::isEventEligible)
+            // 事件时间必须来自真实帖子时间。无时间帖子仍保留在
+            // 待复核列表，但不得用系统当前时间伪造事件和日报。
+            .filter(post -> post.getPublishTime() != null)
             .collect(Collectors.groupingBy(this::eventGroupKey, LinkedHashMap::new, Collectors.toList()));
 
         List<EventEntity> events = new ArrayList<>();
@@ -638,7 +641,7 @@ public class AnalysisService {
             event.setSummary(generateEventSummary(top, posts, eventRiskLevel));
 
             LocalDateTime latest = posts.stream().map(Post::getPublishTime).filter(Objects::nonNull)
-                .max(LocalDateTime::compareTo).orElse(LocalDateTime.now());
+                .max(LocalDateTime::compareTo).orElseThrow();
             event.setCreatedAt(latest);
             event.setUpdatedAt(old != null && old.getUpdatedAt() != null
                 ? old.getUpdatedAt() : latest);
@@ -660,7 +663,8 @@ public class AnalysisService {
     }
 
     private String eventGroupKey(Post post) {
-        LocalDate date = post.getPublishTime() == null ? LocalDate.now() : post.getPublishTime().toLocalDate();
+        LocalDate date = Objects.requireNonNull(post.getPublishTime(),
+            "事件聚合不接受缺失发布时间的帖子").toLocalDate();
         int weekYear = date.get(IsoFields.WEEK_BASED_YEAR);
         int week = date.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR);
         return Objects.toString(effectiveEventCategory(post), "其他风险")

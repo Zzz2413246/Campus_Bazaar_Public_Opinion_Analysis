@@ -5,7 +5,7 @@ import {
   MessageSquare, AlertTriangle, Smile, Meh, Angry, MapPin, Tag, Megaphone,
   ThumbsUp, MessageCircle, Clock, ArrowLeft, ArrowRight, ArrowUp, ArrowDown,
   Copy, Download, Plus, RefreshCw, Check, X, Sparkles, Send, LogOut, Eye, EyeOff,
-  Bookmark, User, Lock, Activity,
+  Bookmark, User, Lock, Activity, Menu, CalendarDays, ClipboardCheck,
   type LucideIcon,
 } from 'lucide-vue-next'
 
@@ -64,6 +64,9 @@ const map: Record<string, LucideIcon> = {
   'send': Send,
   'logout': LogOut,
   'database': Database,
+  'menu': Menu,
+  'calendar': CalendarDays,
+  'clipboard-check': ClipboardCheck,
 }
 </script>
 

@@ -1,5 +1,7 @@
 package com.nankai.yuqing.service;
 
+import com.nankai.yuqing.model.SafetyRelevance;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +40,7 @@ public final class SafetyCategoryStandard {
 
     public static String fromExternal(String code, String overallLabel) {
         if (code != null && CODE_TO_NAME.containsKey(code)) return CODE_TO_NAME.get(code);
-        if ("SAFETY".equalsIgnoreCase(overallLabel)) return CODE_TO_NAME.get("other");
+        if (SafetyRelevance.isRelated(overallLabel)) return CODE_TO_NAME.get("other");
         return CODE_TO_NAME.get("undetermined");
     }
 }

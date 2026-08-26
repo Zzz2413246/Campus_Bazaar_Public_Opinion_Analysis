@@ -47,6 +47,8 @@ npm-debug.log*
 output/
 tmp/
 .ppt_build_final/
+.codex_tmp_*/
+*.zip
 
 # Word temp files
 ~$*

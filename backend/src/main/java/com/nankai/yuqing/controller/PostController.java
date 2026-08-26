@@ -2,6 +2,7 @@ package com.nankai.yuqing.controller;
 
 import com.nankai.yuqing.model.Post;
 import com.nankai.yuqing.model.PostComment;
+import com.nankai.yuqing.model.SafetyRelevance;
 import com.nankai.yuqing.repository.PostCommentRepository;
 import com.nankai.yuqing.repository.PostRepository;
 import com.nankai.yuqing.service.AnalysisService;
@@ -127,7 +128,7 @@ public class PostController {
         for (Post post : posts) {
             if ("confirm".equals(action)) {
                 post.setReviewStatus("已确认");
-                post.setReviewedCategory("NON_SAFETY".equals(post.getScreeningLabel())
+                post.setReviewedCategory(SafetyRelevance.isUnrelated(post.getSafetyRelevance())
                     ? null : defaultString(post.getSafetyCategory(), "其他校园安全"));
                 post.setReviewedRiskLevel(aiRiskLevel(post));
                 post.setReviewedEmotion(defaultString(post.getEmotion(), "中性"));
@@ -168,7 +169,7 @@ public class PostController {
         switch (action) {
             case "confirm" -> {
                 post.setReviewStatus("已确认");
-                post.setReviewedCategory("NON_SAFETY".equals(post.getScreeningLabel())
+                post.setReviewedCategory(SafetyRelevance.isUnrelated(post.getSafetyRelevance())
                     ? null : defaultString(post.getSafetyCategory(), "其他校园安全"));
                 post.setReviewedRiskLevel(aiRiskLevel(post));
                 post.setReviewedEmotion(defaultString(post.getEmotion(), "中性"));
@@ -272,6 +273,7 @@ public class PostController {
         m.put("author", p.getAuthor());
         m.put("authorAvatar", p.getAuthorAvatar());
         m.put("publishTime", p.getPublishTime() != null ? p.getPublishTime().format(fmt) : "");
+        m.put("publishTimestamp", p.getPublishTimestamp());
         m.put("categoryName", p.getCategoryName());
         // 页面展示以本地实际关联的评论行为准；抓取时声明值单独保留用于排查数据质量。
         m.put("commentCount", actualCommentCount);
@@ -328,7 +330,7 @@ public class PostController {
         m.put("commentSuggestedCategory", p.getCommentSuggestedCategory());
         m.put("commentSuggestionCount", p.getCommentSuggestionCount());
         m.put("analysisBasis", p.getAnalysisBasis());
-        m.put("screeningLabel", p.getScreeningLabel());
+        m.put("safetyRelevance", p.getSafetyRelevance());
         m.put("processingStatus", p.getProcessingStatus());
         m.put("analysisReason", p.getAnalysisReason());
         m.put("evidenceSpans", p.getEvidenceSpans());
@@ -350,7 +352,7 @@ public class PostController {
     }
 
     private String displayCategory(Post post) {
-        if ("NON_SAFETY".equals(post.getScreeningLabel())) return "非安全内容";
+        if (SafetyRelevance.isUnrelated(post.getSafetyRelevance())) return "非安全内容";
         return defaultString(post.getSafetyCategory(), "疑似主题无法确定");
     }
 

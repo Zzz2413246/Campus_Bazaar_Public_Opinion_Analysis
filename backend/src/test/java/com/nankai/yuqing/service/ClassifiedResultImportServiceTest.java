@@ -41,7 +41,8 @@ class ClassifiedResultImportServiceTest {
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode safety = mapper.readTree("""
-            {"post_id":"1","processing_status":"ANALYZED","overall_screening_label":"SAFETY",
+            {"post_id":"1","publish_time":"2026-07-15T18:12:36+08:00",
+             "processing_status":"ANALYZED","overall_screening_label":"SAFETY",
              "post_screening":{"confidence":0.98},"full_analysis":{"post_analysis":{
              "safety_category":"personal_security","reason":"存在持续跟踪威胁","evidence_spans":["有人持续尾随"]},
              "comment_analyses":[],"discussion_analysis":{"discussion_summary":"需要关注"}}}
@@ -66,9 +67,13 @@ class ClassifiedResultImportServiceTest {
         assertEquals(3, saved.size());
         assertTrue(saved.stream().anyMatch(p -> "个人安全".equals(p.getSafetyCategory())));
         assertTrue(saved.stream().anyMatch(p -> "疑似主题无法确定".equals(p.getSafetyCategory())));
-        assertTrue(saved.stream().anyMatch(p -> "NON_SAFETY".equals(p.getScreeningLabel()) && p.getSafetyCategory() == null));
+        assertTrue(saved.stream().anyMatch(p -> "unrelated".equals(p.getSafetyRelevance()) && p.getSafetyCategory() == null));
+        assertTrue(saved.stream().anyMatch(p -> "1".equals(p.getId())
+            && LocalDateTime.parse("2026-07-15T18:12:36").equals(p.getPublishTime())));
+        assertTrue(saved.stream().anyMatch(p -> "1".equals(p.getId())
+            && Long.valueOf(1784110356L).equals(p.getPublishTimestamp())));
         assertEquals(3, result.get("retained"));
-        assertEquals(1, result.get("nonSafety"));
+        assertEquals(1, result.get("unrelated"));
     }
 
     @Test
@@ -92,7 +97,7 @@ class ClassifiedResultImportServiceTest {
         ArgumentCaptor<List<Post>> captor = ArgumentCaptor.forClass(List.class);
         verify(posts).saveAll(captor.capture());
         Post saved = captor.getValue().get(0);
-        assertEquals("UNCERTAIN", saved.getScreeningLabel());
+        assertEquals("uncertain", saved.getSafetyRelevance());
         assertEquals("待复核", saved.getReviewStatus());
         assertEquals(1, result.get("normalizedUncertain"));
     }
